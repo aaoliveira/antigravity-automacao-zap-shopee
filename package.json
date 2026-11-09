@@ -8,6 +8,8 @@
     "frontend"
   ],
   "scripts": {
+    "dev:backend": "npm run start:dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
     "docker:up": "docker compose up -d postgres redis",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
