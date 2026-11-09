@@ -1,0 +1,41 @@
+# Registro Formal de Decisões de Produto e Arquitetura (DECISION_LOG)
+
+> **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
+> **Metodologia:** Spec-Driven Development (SDD)  
+> **Status:** Ativo  
+> **Última Atualização:** 2026-11-09  
+
+---
+
+## 1. Registro de Decisões Aprovadas pelo Product Owner
+
+### DEC-001: Fallback de Categorias por Palavras-Chave de Nicho (Shopee Open API)
+- **ID da Dúvida Relacionada:** `Q-INT-01`
+- **Data da Decisão:** 2026-11-09
+- **Aprovador:** Product Owner (Usuário)
+- **Contexto:** A Shopee Affiliate Open API não expõe uma query GraphQL dedicada para catálogo formal de categorias na árvore brasileira, operando prioritariamente por buscas de ofertas com parâmetros de texto e filtros.
+- **Decisão:** Adotar formalmente a **Alternativa A**: o usuário poderá configurar termos de busca e nichos de interesse (ex: "cozinha", "moda feminina", "eletrônicos", "beleza", "casa") diretamente na automação. Cada automação pode conter múltiplas palavras-chave/nichos, que serão sorteadas uniformemente no momento do disparo.
+- **Justificativa:** Elimina dependência de catálogo inexistente, previne alucinações na API da Shopee e concede flexibilidade muito superior ao afiliado para direcionar os grupos aos seus nichos reais de audiência.
+- **Impacto em Artefatos:** Atualização de `PRD.md`, `BUSINESS_RULES.md`, `ACCEPTANCE_CRITERIA.md` e `USER_STORIES.md`.
+
+---
+
+### DEC-002: Validação de Capacidade de Envio de Imagem + Legenda na Evolution API
+- **ID da Dúvida Relacionada:** `Q-INT-02`
+- **Data da Decisão:** 2026-11-09
+- **Aprovador:** Product Owner (Usuário)
+- **Contexto:** Garantir que o envio de ofertas ocorra com imagem do produto e legenda (título, preço e Short Link) em mensagem única via endpoint `/message/sendMedia` no provider Baileys.
+- **Decisão:** Confirmada a abordagem de envio integrado com imagem e legenda estruturada, com fallback documentado caso a Evolution API retorne falha de envio de mídia.
+- **Justificativa:** Mensagens com imagem e legenda unificada geram maior engajamento, menor poluição visual nos grupos e menor risco de separação texto/imagem em conexões instáveis de clientes.
+- **Impacto em Artefatos:** Documentado em `EVOLUTION_API_CONTRACTS.md` e `BUSINESS_RULES.md`.
+
+---
+
+### DEC-003: Modelo de Propriedade Multi-Servidor (BYO-Server) com Suporte a Servidor Padrão
+- **ID da Dúvida Relacionada:** `Q-ARC-01` / `Q-SCP-01`
+- **Data da Decisão:** 2026-11-09
+- **Aprovador:** Product Owner (Usuário)
+- **Contexto:** Definição da arquitetura de conectividade do WhatsApp: cada cliente ter seu servidor Evolution ou centralizado.
+- **Decisão:** Aprovado o **Cenário A**: a entidade `evolution_servers` pertence estritamente ao `tenant_id`, permitindo que cada cliente cadastre sua própria URL base e Global API Key. Ao mesmo tempo, o modelo permite tecnicamente que a plataforma vincule um servidor compartilhado padrão caso desejado.
+- **Justificativa:** Garante isolamento estrito de infraestrutura, reduz os custos operacionais do SaaS no MVP e dá autonomia total aos clientes avançados.
+- **Impacto em Artefatos:** Modelagem de dados (`docs/architecture/` e Prompt 03).

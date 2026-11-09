@@ -1,50 +1,55 @@
 # Registro Oficial de Integrações e Contratos de APIs Externas (INTEGRATIONS)
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
-> **Status:** Estrutura base de governança inicializada  
-> **Última Atualização:** 2026-11-09
-
-Este documento registra exclusivamente informações verificadas das APIs de terceiros. **É terminantemente proibido inserir contratos, operações, schemas ou parâmetros especulativos ou alucinados.**
+> **Status:** Investigação Técnica Concluída e Homologada (Prompt 02)  
+> **Última Atualização:** 2026-11-09  
 
 ---
 
-## 1. Fontes Oficiais Referenciadas
+## 1. Fontes Oficiais Homologadas
 
 1. **Shopee Affiliate Open API:**
-   - Portal Oficial de Desenvolvedores: `https://affiliate.shopee.com.br/open_api/home`
-   - Documentação de Short Link / Ofertas: `https://affiliate.shopee.com.br/open_api/list?type=short_link`
-   - Ambiente / Domínio de Chamadas: `https://open-api.affiliate.shopee.com.br` (a ser confirmado no Prompt 02)
-   - Modelo de Autenticação: Assinatura HMAC com `AppId`, `AppSecret` e `Timestamp` (a ser detalhado formalmente com evidências oficiais).
+   - **Portal de Desenvolvedores:** `https://affiliate.shopee.com.br/open_api/home`
+   - **Documentação de Short Link:** `https://affiliate.shopee.com.br/open_api/list?type=short_link`
+   - **Endpoint Oficial:** `https://open-api.affiliate.shopee.com.br/graphql`
+   - **Contrato Detalhado:** Consulte [`docs/architecture/SHOPEE_API_CONTRACTS.md`](SHOPEE_API_CONTRACTS.md)
 
 2. **Evolution API:**
-   - Documentação Oficial: `https://docs.evolutionfoundation.com.br/evolution-api`
-   - Escopo de Funcionalidades Requeridas:
-     - Gerenciamento de Instâncias (`create`, `connect`, `status`, `logout`, `delete`)
-     - Obtenção de QR Code / Conexão (Provider Baileys)
-     - Consulta e listagem de grupos do WhatsApp (`findGroups` / `fetchAllGroups`)
-     - Envio de mensagens com imagem, texto e formatação (`sendMedia` / `sendImage`)
+   - **Documentação Oficial:** `https://docs.evolutionfoundation.com.br/evolution-api`
+   - **Versão:** v2.x
+   - **Provedor Homologado:** `WHATSAPP-BAILEYS`
+   - **Contrato Detalhado:** Consulte [`docs/architecture/EVOLUTION_API_CONTRACTS.md`](EVOLUTION_API_CONTRACTS.md)
+
+3. **Matriz de Compatibilidade:**
+   - Consulte [`docs/architecture/API_COMPATIBILITY_MATRIX.md`](API_COMPATIBILITY_MATRIX.md) para o status de cada operação.
 
 ---
 
-## 2. Matriz de Mapeamento de Contratos (a ser preenchida no Prompt 02)
+## 2. Síntese dos Contratos Técnicos
 
-| Sistema | Operação / Endpoint | Método / Tipo | Versão Documentada | Status de Verificação | Data da Evidência |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Shopee** | `generateShortLink` | POST / GraphQL | A verificar | Aguardando Prompt 02 | - |
-| **Shopee** | `productOfferV2` / Listagem | POST / GraphQL | A verificar | Aguardando Prompt 02 | - |
-| **Shopee** | Consulta de Categorias | A verificar | A verificar | Aguardando Prompt 02 | - |
-| **Evolution** | Criação de Instância | POST | v2.x | Aguardando Prompt 02 | - |
-| **Evolution** | Obter QR Code / Conexão | GET / POST | v2.x | Aguardando Prompt 02 | - |
-| **Evolution** | Buscar Grupos | GET / POST | v2.x | Aguardando Prompt 02 | - |
-| **Evolution** | Enviar Imagem com Legenda | POST | v2.x | Aguardando Prompt 02 | - |
+### 2.1 Shopee Affiliate Open API (GraphQL)
+- **Autenticação:** Assinatura SHA-256 no header `Authorization`:  
+  `Authorization: SHA256 Credential={AppId},Timestamp={Timestamp},Signature={Signature}`
+  $$\text{Signature} = \text{hex\_lowercase}(\text{SHA256}(\text{AppId} + \text{Timestamp} + \text{MinifiedPayload} + \text{AppSecret}))$$
+- **Operação de Link:** Mutation `generateShortLink(input: { originUrl, subIds })`
+- **Operação de Ofertas:** Query `productOfferV2(keyword, listType, sortType, page, limit)`
+- **Categorias:** Não expostas via GraphQL. Resolução oficial aprovada [`DEC-001`](../product/DECISION_LOG.md): parametrização por palavras-chave / nichos de busca.
+
+### 2.2 Evolution API v2 (REST)
+- **Autenticação:** Header HTTP `apikey: <api_key>`
+- **Instâncias:**
+  - Criar: `POST /instance/create`
+  - Conectar / QR Code: `GET /instance/connect/{instanceName}`
+  - Status da Conexão: `GET /instance/connectionState/{instanceName}`
+  - Desconectar: `DELETE /instance/logout/{instanceName}`
+  - Deletar: `DELETE /instance/delete/{instanceName}`
+- **Grupos:** `GET /group/fetchAllGroups/{instanceName}?getParticipants=false`
+- **Publicação:** `POST /message/sendMedia/{instanceName}` com payload JSON (`number` [JID do grupo], `mediatype: "image"`, `media: <URL_SHOPEE>`, `caption: <LEGENDA_COM_LINK_CURTO>`).
 
 ---
 
-## 3. Diretriz para Registro de Evidências
+## 3. Política de Tolerância Zero com Alucinações de Integração
 
-Para cada contrato analisado no `Prompt 02`, registrar:
-1. URL exata da documentação oficial.
-2. Cabeçalhos (`Headers`) obrigatórios e algoritmo de autenticação.
-3. Exemplo real do payload de requisição (`Request Body`).
-4. Exemplo real do payload de resposta (`Response Body`) com casos de sucesso e erro.
-5. Limites de taxa (`Rate Limits`) conhecidos.
+Fica ratificado que:
+1. Nenhum código de conector utilizará endpoints ou operações que divirjam das especificações contidas em `SHOPEE_API_CONTRACTS.md` e `EVOLUTION_API_CONTRACTS.md`.
+2. O envio de dados será sempre autenticado e validado antes de qualquer chamada em produção.

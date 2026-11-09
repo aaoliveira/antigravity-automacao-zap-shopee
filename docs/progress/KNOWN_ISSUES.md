@@ -11,10 +11,10 @@ Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de 
 
 ## 1. Bloqueios e Incertezas de Contrato Externo
 
-| ID | Data | Descrição do Bloqueio | Módulo / Dependência | Impacto | Ação Necessária | Status |
+| ID | Data | Descrição do Bloqueio | Módulo / Dependência | Impacto | Resolução Adotada | Status |
 | :--- | :---: | :--- | :--- | :--- | :--- | :---: |
-| **BLK-001** | 2026-11-09 | Validação de endpoint oficial Shopee para listagem de categorias vs listagem de ofertas | Shopee Open API (`Prompt 02`) | Definição de como o usuário filtrará produtos nas automações | Realizar consulta à documentação oficial autenticada no Prompt 02. Não assumir GraphQL alucinado. Ver [`Q-INT-01`](../product/OPEN_QUESTIONS.md). | **ABERTO** |
-| **BLK-002** | 2026-11-09 | Compatibilidade do provider Baileys da Evolution API para envio de mensagens com mídia e listagem de grupos | Evolution API (`Prompt 02`/`06`) | Garantir que o envio de imagem + legenda funcione em instâncias WhatsApp | Mapear contratos reais da Evolution API v2 no Prompt 02. Ver [`Q-INT-02`](../product/OPEN_QUESTIONS.md). | **ABERTO** |
+| **BLK-001** | 2026-11-09 | Validação de endpoint oficial Shopee para listagem de categorias vs listagem de ofertas | Shopee Open API (`Prompt 02`) | Definição de como o usuário filtrará produtos nas automações | **RESOLVIDO via DEC-001:** Shopee opera via `productOfferV2(keyword: ...)`. Usuário configura palavras-chave/nichos por automação. | **RESOLVIDO** |
+| **BLK-002** | 2026-11-09 | Compatibilidade do provider Baileys da Evolution API para envio de mensagens com mídia e listagem de grupos | Evolution API (`Prompt 02`/`06`) | Garantir que o envio de imagem + legenda funcione em instâncias WhatsApp | **RESOLVIDO via DEC-002:** Confirmado suporte a `POST /message/sendMedia` com JSON (imagem via URL + legenda) e `GET /group/fetchAllGroups`. | **RESOLVIDO** |
 
 ---
 

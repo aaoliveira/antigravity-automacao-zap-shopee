@@ -12,8 +12,8 @@
 | :--- | :--- | :---: | :---: | :---: | :--- |
 | **Prompt 00** | Governança permanente, contexto e prevenção de alucinações | **CONCLUÍDO** | 2026-11-09 | 5 / 5 | `AGENTS.md`, `README.md`, `prompts/00-...` criados com regras inegociáveis. |
 | **Prompt 01** | Discovery, PRD e especificações funcionais | **CONCLUÍDO** | 2026-11-09 | 7 / 7 | PRD, Escopo MVP, Personas, Histórias, Regras de Negócio e Matriz de Rastreabilidade criados. |
-| **Prompt 02** | Investigação técnica das APIs e contratos de integração | **PENDENTE** | - | 0 / 6 | Próxima etapa a ser iniciada após aprovação. |
-| **Prompt 03** | Arquitetura, modelo de dados e desenho de segurança | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 03. |
+| **Prompt 02** | Investigação técnica das APIs e contratos de integração | **CONCLUÍDO** | 2026-11-09 | 6 / 6 | Contratos oficiais Shopee e Evolution v2 mapeados, matriz de compatibilidade e decisões homologadas. |
+| **Prompt 03** | Arquitetura, modelo de dados e desenho de segurança | **PENDENTE** | - | 0 / 6 | Próxima etapa a ser iniciada após aprovação. |
 | **Prompt 04** | Fundação, autenticação e multi-tenancy | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 04. |
 | **Prompt 05** | Credenciais e integração Shopee | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 05. |
 | **Prompt 06** | Evolution API, instâncias, QR Code e grupos | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 06. |
@@ -24,29 +24,26 @@
 
 ---
 
-## 2. Detalhes da Etapa Atual: PROMPT 01
+## 2. Detalhes da Etapa Atual: PROMPT 02
 
-- **Objetivo:** Transformar a visão do produto em especificações funcionais detalhadas, critérios de aceite verificáveis e mapeamento de riscos e dúvidas bloqueantes, sem implementar código.
+- **Objetivo:** Confirmar e documentar com base em fontes oficiais os contratos da Shopee Affiliate Open API e Evolution API v2, sem inventar endpoints ou operações.
 - **Artefatos Entregues:**
-  - [`prompts/01-DISCOVERY-PRD-SPECS.md`](../../prompts/01-DISCOVERY-PRD-SPECS.md): Registro do Prompt 01.
-  - [`docs/product/PRD.md`](../product/PRD.md): Product Requirements Document completo cobrindo RF-01 a RF-16 e RNF-01 a RNF-07.
-  - [`docs/product/MVP_SCOPE.md`](../product/MVP_SCOPE.md): Matriz detalhada de itens dentro e estritamente fora do MVP.
-  - [`docs/product/PERSONAS_AND_JOURNEYS.md`](../product/PERSONAS_AND_JOURNEYS.md): Mapeamento de 2 personas e as 9 etapas da jornada do cliente com fluxos felizes e de exceção.
-  - [`docs/product/USER_STORIES.md`](../product/USER_STORIES.md): 14 Histórias de Usuário estruturadas com IDs, pré-condições, fluxo, exceções e critérios Given/When/Then.
-  - [`docs/product/BUSINESS_RULES.md`](../product/BUSINESS_RULES.md): Catálogo oficial com 21 regras de negócio distribuídas em 6 domínios (RN-TEN, RN-SEC, RN-SHO, RN-EVO, RN-AUT, RN-PUB).
-  - [`docs/quality/ACCEPTANCE_CRITERIA.md`](../quality/ACCEPTANCE_CRITERIA.md): Critérios de aceite mensuráveis item a item para RF-01 a RF-16.
-  - [`docs/quality/REQUIREMENTS_TRACEABILITY.md`](../quality/REQUIREMENTS_TRACEABILITY.md): Matriz bidirecional de rastreabilidade (RF x US x RN x AC) e plano de cobertura de testes.
-  - [`docs/product/OPEN_QUESTIONS.md`](../product/OPEN_QUESTIONS.md): Registro formal de dúvidas bloqueantes e pontos de decisão para o Prompt 02.
+  - [`prompts/02-API-DISCOVERY-CONTRACTS.md`](../../prompts/02-API-DISCOVERY-CONTRACTS.md): Registro do Prompt 02.
+  - [`docs/architecture/SHOPEE_API_CONTRACTS.md`](../architecture/SHOPEE_API_CONTRACTS.md): Especificação completa da autenticação SHA-256, GraphQL endpoint, `generateShortLink` e `productOfferV2`.
+  - [`docs/architecture/EVOLUTION_API_CONTRACTS.md`](../architecture/EVOLUTION_API_CONTRACTS.md): Especificação dos endpoints REST de instâncias, grupos e envio de mídia via Baileys na v2.
+  - [`docs/architecture/API_COMPATIBILITY_MATRIX.md`](../architecture/API_COMPATIBILITY_MATRIX.md): Matriz de compatibilidade formal (`SUPORTADO`, `NÃO SUPORTADO`).
+  - [`docs/architecture/INTEGRATIONS.md`](../architecture/INTEGRATIONS.md): Registro síntese atualizado.
+  - [`docs/product/DECISION_LOG.md`](../product/DECISION_LOG.md): Registro formal de aprovação das decisões `DEC-001`, `DEC-002` e `DEC-003`.
+  - [`docs/product/OPEN_QUESTIONS.md`](../product/OPEN_QUESTIONS.md): Atualizado com status de dúvidas aprovadas.
 - **Critérios de Aceite Validados:**
-  - [x] Todos os fluxos principais e alternativos estão descritos.
-  - [x] Requisitos possuem identificadores únicos (RF-01 a RF-16) e prioridade.
-  - [x] Regras multi-tenant e de propriedade estão explícitas.
-  - [x] Escopo MVP e itens fora do MVP estão claramente separados.
-  - [x] Dependências não confirmadas das APIs estão catalogadas formalmente.
-  - [x] Cada requisito funcional possui critérios de aceite verificáveis.
-  - [x] Dúvidas bloqueantes estão consolidadas em `OPEN_QUESTIONS.md`.
+  - [x] Cada operação externa usada no MVP possui contrato documentado.
+  - [x] Autenticação e assinatura Shopee estão verificadas.
+  - [x] Geração de Short Link está documentada com request/response.
+  - [x] Operações Evolution foram verificadas na versão/provedor escolhidos (v2 / Baileys).
+  - [x] Suporte a grupos e mídia está confirmado.
+  - [x] Operações não confirmadas estão bloqueadas, sem código especulativo.
 
 ---
 
 ## 3. Próximo Passo
-Aguardar aprovação formal do usuário para as especificações do **PROMPT 01** e instrução para avançar ao **PROMPT 02 (Investigação técnica das APIs e contratos de integração)**.
+Aguardar aprovação formal do usuário para avançar ao **PROMPT 03 (Arquitetura, modelo de dados e desenho de segurança)**.
