@@ -2,18 +2,19 @@
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation (MVP)  
 > **Metodologia:** Spec-Driven Development (SDD)  
-> **Status:** Ativo
+> **Status:** Ativo  
+> **Última Atualização:** 2026-11-09  
 
 Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de contratos formais de APIs externas, dependências de credenciais de produção e restrições conhecidas das plataformas de terceiros.
 
 ---
 
-## 1. Bloqueios Atuais
+## 1. Bloqueios e Incertezas de Contrato Externo
 
 | ID | Data | Descrição do Bloqueio | Módulo / Dependência | Impacto | Ação Necessária | Status |
 | :--- | :---: | :--- | :--- | :--- | :--- | :---: |
-| **BLK-001** | 2026-11-09 | Necessidade de validação de endpoint oficial Shopee para listagem de categorias vs listagem de ofertas | Shopee Open API (`Prompt 02`) | Definição de como o usuário filtrará produtos nas automações | Realizar consulta à documentação oficial autenticada no Prompt 02. Não assumir GraphQL alucinado. | **ABERTO** |
-| **BLK-002** | 2026-11-09 | Compatibilidade do provider Baileys da Evolution API para envio de mensagens com mídia e listagem de grupos | Evolution API (`Prompt 02`/`06`) | Garantir que o envio de imagem + legenda funcione em instâncias WhatsApp | Mapear contratos reais da Evolution API v2 no Prompt 02. | **ABERTO** |
+| **BLK-001** | 2026-11-09 | Validação de endpoint oficial Shopee para listagem de categorias vs listagem de ofertas | Shopee Open API (`Prompt 02`) | Definição de como o usuário filtrará produtos nas automações | Realizar consulta à documentação oficial autenticada no Prompt 02. Não assumir GraphQL alucinado. Ver [`Q-INT-01`](../product/OPEN_QUESTIONS.md). | **ABERTO** |
+| **BLK-002** | 2026-11-09 | Compatibilidade do provider Baileys da Evolution API para envio de mensagens com mídia e listagem de grupos | Evolution API (`Prompt 02`/`06`) | Garantir que o envio de imagem + legenda funcione em instâncias WhatsApp | Mapear contratos reais da Evolution API v2 no Prompt 02. Ver [`Q-INT-02`](../product/OPEN_QUESTIONS.md). | **ABERTO** |
 
 ---
 
@@ -23,6 +24,7 @@ Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de 
 - **LIM-002 (Geração de Copy via LLM):** O MVP utilizará templates determinísticos estruturados (Título, Preço, Link curto de afiliado e Imagem oficial). IA generativa para copy fica para fase pós-MVP.
 - **LIM-003 (Cobrança e Billing):** Não haverá gateway de pagamento ou faturamento automático no MVP. A provisão de acesso/tenant será manual ou auto-cadastro inicial conforme definido no PRD.
 - **LIM-004 (App Mobile):** Plataforma estritamente web responsiva (desktop e mobile web).
+- **LIM-005 (Múltiplos Provedores WhatsApp):** Suporte exclusivo à Evolution API via provider homologado (Baileys) no MVP.
 
 ---
 
