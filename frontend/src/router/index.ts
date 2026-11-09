@@ -4,6 +4,7 @@ import RegisterView from '../views/RegisterView.vue';
 import ForgotView from '../views/ForgotView.vue';
 import DashboardView from '../views/DashboardView.vue';
 import ShopeeCredentialsView from '../views/ShopeeCredentialsView.vue';
+import WhatsAppInstancesView from '../views/WhatsAppInstancesView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -40,6 +41,12 @@ const router = createRouter({
       path: '/shopee-credentials',
       name: 'shopee-credentials',
       component: ShopeeCredentialsView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/whatsapp-instances',
+      name: 'whatsapp-instances',
+      component: WhatsAppInstancesView,
       meta: { requiresAuth: true },
     },
   ],
