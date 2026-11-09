@@ -182,4 +182,25 @@ query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) {
 | `200` com `errors` | `Invalid Signature` | Incompatibilidade entre payload serializado e a assinatura SHA-256 gerada. | Abortar, logar erro de autenticação e verificar normalização do JSON. |
 | `200` com `errors` | `AppId not found` | Credencial inválida ou desabilitada no portal Shopee. | Marcar credencial como `INVALID` no tenant e notificar usuário. |
 | `429` | `Too Many Requests` | Limite de taxa excedido na API da Shopee. | Aplicar backoff exponencial e postergar próximo disparo. |
-| `500 / 503` | `Service Unavailable` | Indisponibilidade momentânea nos servidores da Shopee. | Retentar até 2 vezes com intervalo de 5s; abortar se persistir sem afetar outras automações. |
+---
+
+## 7. Rate Limits, Quotas e Boas Práticas
+
+### 7.1 Limites de Taxa (Rate Limits)
+- **Quota Estimada:** Até 10 requisições por segundo por `AppId` no ambiente de afiliados.
+- **Tratamento:** O conector Shopee no backend implementará uma fila com rate-limiting interno (`bottleneck` ou `p-throttle`) limitando a 3 requisições por segundo por tenant, evitando disparos em rajada (`bursts`) que possam gerar `HTTP 429 Too Many Requests`.
+
+### 7.2 Regras Estritas de Sub-IDs (`subIds`)
+- **Quantidade Máxima:** Até 5 sub-IDs no array (`subIds: [subId1, subId2, subId3, subId4, subId5]`).
+- **Comprimento Máximo:** Até 50 caracteres por sub-ID.
+- **Caracteres Permitidos:** Alfanuméricos (`a-z`, `A-Z`, `0-9`), hífens (`-`) e underscores (`_`). Não utilizar espaços, caracteres especiais ou acentuação.
+- **Uso Recomendado no SaaS:**
+  - `subId1`: ID da automação (`automation_{id}`)
+  - `subId2`: ID do grupo (`group_{jid}`)
+  - `subId3`: Data do disparo (`YYYYMMDD`)
+
+### 7.3 Regra de Canonicalização para Prevenção de `Invalid Signature`
+1. O objeto da requisição GraphQL (contendo `query` e opcionalmente `variables`) deve ser serializado em JSON com separadores compactos: `,` e `:`.
+2. Não incluir caracteres de escape desnecessários ou formatação com espaços ou indentação `\t` ou `\n` extras na string serializada.
+3. A mesma string compacta usada no cálculo do hash SHA-256 deve ser repassada integralmente como o body da requisição HTTP POST.
+

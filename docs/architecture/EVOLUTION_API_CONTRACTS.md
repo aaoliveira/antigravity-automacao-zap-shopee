@@ -184,9 +184,93 @@
 }
 ```
 
+### 4.2 Envio de Texto Simples (`POST /message/sendText/{instanceName}`)
+- **Descrição:** Envia mensagem de texto simples para um contato ou grupo (utilizado para alertas de sistema ou fallback de texto).
+- **Headers:** `apikey: <API_KEY>`, `Content-Type: application/json`
+- **Payload (Request Body):**
+```json
+{
+  "number": "1203630192837465@g.us",
+  "text": "🔥 Oferta Relâmpago Shopee: confira os achadinhos de hoje!",
+  "delay": 1200
+}
+```
+- **Resposta de Sucesso (`HTTP 201 Created`):**
+```json
+{
+  "key": {
+    "remoteJid": "1203630192837465@g.us",
+    "fromMe": true,
+    "id": "BAE591823719283B"
+  },
+  "message": {
+    "conversation": "🔥 Oferta Relâmpago Shopee..."
+  },
+  "messageTimestamp": "1731150005",
+  "status": "PENDING"
+}
+```
+
 ---
 
-## 5. Regras de Resiliência e Códigos de Retorno
+## 5. Webhooks e Eventos da Evolution API
+
+A Evolution API permite configurar o encaminhamento de eventos via webhook HTTP POST para o backend do SaaS, reduzindo a necessidade de polling ativo para o status das instâncias.
+
+### 5.1 Configuração do Webhook na Instância (`POST /webhook/set/{instanceName}`)
+- **Payload de Configuração:**
+```json
+{
+  "enabled": true,
+  "url": "https://api.meusaas.com/api/webhooks/evolution",
+  "headers": {
+    "x-webhook-secret": "token-secreto-do-tenant"
+  },
+  "byEvents": false,
+  "base64": false,
+  "events": [
+    "QRCODE_UPDATED",
+    "CONNECTION_UPDATE"
+  ]
+}
+```
+
+### 5.2 Evento: Atualização de Estado de Conexão (`CONNECTION_UPDATE`)
+- **Payload Recebido:**
+```json
+{
+  "event": "connection.update",
+  "instance": "instancia-afiliado-01",
+  "data": {
+    "state": "open",
+    "statusReason": 200
+  },
+  "destination": "https://api.meusaas.com/api/webhooks/evolution",
+  "date_time": "2026-11-09T10:30:00.000Z"
+}
+```
+- **Ação no SaaS:** Atualiza o campo `status` da `WhatsAppInstance` para `CONNECTED` (quando `open`) ou `DISCONNECTED` (quando `close`).
+
+### 5.3 Evento: Atualização do QR Code (`QRCODE_UPDATED`)
+- **Payload Recebido:**
+```json
+{
+  "event": "qrcode.updated",
+  "instance": "instancia-afiliado-01",
+  "data": {
+    "qrcode": {
+      "base64": "data:image/png;base64,iVBORw0KGgo...",
+      "code": "2@b...pairing..."
+    }
+  },
+  "date_time": "2026-11-09T10:30:00.000Z"
+}
+```
+- **Ação no SaaS:** Emite evento de WebSocket / SSE para o frontend atualizar a imagem do QR Code na tela do usuário em tempo real.
+
+---
+
+## 6. Regras de Resiliência e Códigos de Retorno
 
 | Código HTTP | Significado | Causa | Conduta no SaaS |
 | :---: | :--- | :--- | :--- |
