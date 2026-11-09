@@ -8,6 +8,7 @@ import { HealthModule } from './modules/health/health.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
+import { ShopeeModule } from './modules/shopee/shopee.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -25,6 +26,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     QueueModule,
     AuthModule,
     TenantsModule,
+    ShopeeModule,
   ],
   providers: [
     {
