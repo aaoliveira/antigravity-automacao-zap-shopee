@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../database/prisma.service';
 import { InstanceStatus } from '@prisma/client';
@@ -27,10 +28,22 @@ export class EvolutionWebhookController {
     @Body() payload: any,
   ) {
     const expectedSecret =
-      process.env.EVOLUTION_WEBHOOK_SECRET || 'evolution-default-webhook-secret';
+      process.env.EVOLUTION_WEBHOOK_SECRET ||
+      (process.env.NODE_ENV !== 'production' ? 'evolution-default-webhook-secret' : '');
 
-    if (!secretHeader || secretHeader !== expectedSecret) {
-      this.logger.warn('Tentativa de acesso a webhook com x-webhook-secret ausente ou inválido.');
+    if (!expectedSecret || !secretHeader) {
+      this.logger.warn('Tentativa de acesso a webhook com x-webhook-secret ausente ou segredo não configurado.');
+      throw new UnauthorizedException('Segredo de webhook inválido ou ausente.');
+    }
+
+    const headerBuf = Buffer.from(secretHeader);
+    const expectedBuf = Buffer.from(expectedSecret);
+
+    if (
+      headerBuf.length !== expectedBuf.length ||
+      !crypto.timingSafeEqual(headerBuf, expectedBuf)
+    ) {
+      this.logger.warn('Tentativa de acesso a webhook com x-webhook-secret inválido.');
       throw new UnauthorizedException('Segredo de webhook inválido ou ausente.');
     }
 

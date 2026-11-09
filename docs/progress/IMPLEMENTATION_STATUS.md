@@ -90,5 +90,32 @@
 
 ---
 
+### 2.9 PROMPT 09 — Qualidade, Segurança e Prontidão para Produção (Concluído)
+- **Status:** CONCLUÍDO
+- **Entregáveis:**
+  - Auditoria completa de segurança de aplicação em [`docs/security/SECURITY_AUDIT.md`](docs/security/SECURITY_AUDIT.md).
+  - Relatório consolidado de qualidade e testes em [`docs/quality/QA_REPORT.md`](docs/quality/QA_REPORT.md).
+  - Avaliação de prontidão operacional em [`docs/operations/PRODUCTION_READINESS.md`](docs/operations/PRODUCTION_READINESS.md).
+  - Guia operacional e playbooks de troubleshooting em [`docs/operations/RUNBOOK.md`](docs/operations/RUNBOOK.md).
+  - Atualização de riscos e mitigações em [`docs/progress/KNOWN_ISSUES.md`](docs/progress/KNOWN_ISSUES.md).
+  - Mitigação de segurança implementadas no código:
+    - Headers de segurança com `helmet` em `backend/src/main.ts`.
+    - Rate limiting global e anti-brute force com `@nestjs/throttler` (v6.7) em `backend/src/app.module.ts`.
+    - Mitigação SSRF em `mediaUrl` via `EvolutionSsrfValidator.validateUrl` em `whatsapp-groups.service.ts`.
+    - Mitigação de timing attack e segredo obrigatório em produção no webhook Evolution via `crypto.timingSafeEqual` em `evolution-webhook.controller.ts`.
+    - Suporte à rotação segura de chave mestra (`reencryptWithNewKey`) em `crypto-vault.service.ts`.
+    - Contêiner de produção rodando como usuário não-privilegiado `USER node` em `backend/Dockerfile`.
+    - Eliminação de vulnerabilidades transitivas pela remoção de pacote não utilizado no `package.json`.
+  - Suítes de testes de segurança e resiliência criadas:
+    - `backend/test/security-isolation.e2e-spec.ts` (19 testes de isolamento multi-tenant, IDOR, SSRF, webhooks e SQLi).
+    - `backend/test/reliability-resilience.e2e-spec.ts` (7 testes de concorrência com locks Redis, circuit breaker offline, tolerância Shopee, desduplicação 7 dias e falha parcial).
+- **Suíte Total Consolidada (118 testes aprovados — 0 falhas):**
+  - Backend Unit Tests: 5 suites, 29 testes passando em ~3.3s.
+  - Backend E2E Tests: 9 suites, 85 testes passando em ~9.5s.
+  - Frontend E2E (Playwright): 4 testes passando em ~3.9s.
+  - Frontend Build: 122 módulos compilando em ~1.7s.
+
+---
+
 ## 3. Próximo Passo
-Avançar para o **PROMPT 09 (Qualidade, Segurança e Prontidão para Produção)** conforme o plano mestre de entregas SDD.
+Avançar para o **PROMPT 10 (Validação End-to-End do Fluxo de Publicação e Homologação Final)** conforme o plano mestre de entregas SDD.

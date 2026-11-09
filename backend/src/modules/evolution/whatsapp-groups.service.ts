@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { EvolutionClient, CaptionTemplateParams } from './evolution.client';
+import { EvolutionSsrfValidator } from './evolution-ssrf.validator';
 import { QueryGroupsDto } from './dto/evolution.dto';
 import { InstanceStatus } from '@prisma/client';
 
@@ -138,6 +139,13 @@ export class WhatsAppGroupsService {
       captionTemplate?: string;
     },
   ) {
+    if (!params.mediaUrl) {
+      throw new BadRequestException('A URL da mídia é obrigatória.');
+    }
+
+    // Validação estrita contra SSRF na URL de mídia
+    EvolutionSsrfValidator.validateUrl(params.mediaUrl);
+
     const group = await this.prisma.whatsAppGroup.findFirst({
       where: { id: groupId, tenantId },
       include: {

@@ -85,4 +85,28 @@ export class CryptoVaultService {
     const tail = secret.slice(-visibleChars);
     return `************${tail}`;
   }
+
+  /**
+   * Suporte à rotação segura de chave mestre.
+   * Decifra o segredo com a chave mestre atual e recifra com uma nova chave informada.
+   */
+  reencryptWithNewKey(encryptedPayload: string, newMasterKeyHex: string): string {
+    if (!newMasterKeyHex || newMasterKeyHex.length !== 64) {
+      throw new Error('Nova chave mestre inválida. Deve ter 64 caracteres hexadecimais (256 bits).');
+    }
+
+    const plainText = this.decrypt(encryptedPayload);
+    const newMasterKey = Buffer.from(newMasterKeyHex, 'hex');
+
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(this.algorithm, newMasterKey, iv);
+
+    let encrypted = cipher.update(plainText, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+
+    const authTag = cipher.getAuthTag().toString('hex');
+    const ivHex = iv.toString('hex');
+
+    return `${ivHex}:${encrypted}:${authTag}`;
+  }
 }

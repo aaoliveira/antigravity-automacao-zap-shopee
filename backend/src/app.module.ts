@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 import { DatabaseModule } from './modules/database/database.module';
 import { CryptoVaultModule } from './modules/crypto-vault/crypto-vault.module';
@@ -24,6 +25,12 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
       isGlobal: true,
       envFilePath: ['.env', '../.env'],
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 300,
+      },
+    ]),
     DatabaseModule,
     CryptoVaultModule,
     HealthModule,
@@ -37,6 +44,10 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     HistoryModule,
   ],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

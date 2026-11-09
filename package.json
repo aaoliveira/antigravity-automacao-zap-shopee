@@ -31,8 +31,5 @@
     "vue3"
   ],
   "author": "Antigravity Engineering Team",
-  "license": "UNLICENSED",
-  "dependencies": {
-    "@cline/sdk": "^0.2.0"
-  }
+  "license": "UNLICENSED"
 }
