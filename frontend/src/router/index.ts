@@ -5,6 +5,7 @@ import ForgotView from '../views/ForgotView.vue';
 import DashboardView from '../views/DashboardView.vue';
 import ShopeeCredentialsView from '../views/ShopeeCredentialsView.vue';
 import WhatsAppInstancesView from '../views/WhatsAppInstancesView.vue';
+import AutomationsView from '../views/AutomationsView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -47,6 +48,12 @@ const router = createRouter({
       path: '/whatsapp-instances',
       name: 'whatsapp-instances',
       component: WhatsAppInstancesView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/automations',
+      name: 'automations',
+      component: AutomationsView,
       meta: { requiresAuth: true },
     },
   ],
