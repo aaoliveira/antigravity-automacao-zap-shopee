@@ -24,6 +24,8 @@ build/
 .next/
 out/
 coverage/
+test-results/
+playwright-report/
 
 # IDEs e editores
 .vscode/

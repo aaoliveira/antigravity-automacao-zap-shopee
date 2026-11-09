@@ -66,5 +66,29 @@
 
 ---
 
+### 2.8 PROMPT 08 — Frontend, Dashboard e Experiência do Usuário (Concluído)
+- **Status:** CONCLUÍDO
+- **Entregáveis:**
+  - Design system consistente (Tailwind CSS, tokens semânticos, `ToastContainer`, `BadgeStatus`, `EmptyState`, `AppModal`).
+  - Navegação SaaS estruturada com sidebar (`AppLayout.vue`), proteção de rotas e redirecionamento de 401 por Axios interceptors.
+  - Dashboard operacional em tempo real (`/api/dashboard/summary`, `/api/dashboard/upcoming`) com métricas reais por tenant e onboarding guiado para contas novas.
+  - Módulo de Histórico (`/api/history/executions`) com filtros, paginação, thumbnails, links Shopee oficiais e status individual de publicação por grupo.
+  - Configurações do tenant (`SettingsView.vue`) e integração fluida com Shopee, Evolution e Wizard de Automações.
+  - Testes E2E de Dashboard e Histórico no NestJS (`test/dashboard-history.e2e-spec.ts`).
+  - Testes E2E de Frontend no Playwright (`frontend/e2e/app.spec.ts`).
+- **Suíte de Testes Aprovada (92 testes no total):**
+  - Backend Unit Tests: 5 suites, 29 testes passando (`npm run test`) em ~3.3s.
+  - Backend E2E Tests: 7 suites, 59 testes passando (`npm run test:e2e`) em ~8.1s.
+  - Frontend E2E (Playwright): 4 testes passando (`npm run test:frontend`) em ~3.9s.
+  - Frontend Build: `npm run build --workspace=frontend` passando em ~1.7s.
+- **Critérios de Aceite Validados:**
+  - [x] Dashboard consome métricas 100% reais sem dados fictícios.
+  - [x] Empty state exibido para tenants novos sem dados cadastrados.
+  - [x] Histórico permite detalhamento por execução e status por grupo.
+  - [x] Sessão expirada trata código 401 redirecionando para login com toast de alerta.
+  - [x] Suite completa executa de forma rápida e determinística (zero locks pendentes).
+
+---
+
 ## 3. Próximo Passo
-Aguardar aprovação formal do usuário para a etapa **PROMPT 07** e instrução para avançar ao **PROMPT 08 (Frontend, dashboard e experiência do usuário)**.
+Avançar para o **PROMPT 09 (Qualidade, Segurança e Prontidão para Produção)** conforme o plano mestre de entregas SDD.

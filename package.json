@@ -12,6 +12,9 @@
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
     "test": "npm run test --workspace=backend",
+    "test:e2e": "npm run test:e2e --workspace=backend",
+    "test:frontend": "npx playwright test --config frontend/playwright.config.ts",
+    "test:all": "npm run test && npm run test:e2e && npm run test:frontend",
     "test:cov": "npm run test:cov --workspace=backend",
     "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
     "db:migrate": "npm run prisma:migrate --workspace=backend",
@@ -28,5 +31,8 @@
     "vue3"
   ],
   "author": "Antigravity Engineering Team",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@cline/sdk": "^0.2.0"
+  }
 }

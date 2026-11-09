@@ -6,6 +6,8 @@ import DashboardView from '../views/DashboardView.vue';
 import ShopeeCredentialsView from '../views/ShopeeCredentialsView.vue';
 import WhatsAppInstancesView from '../views/WhatsAppInstancesView.vue';
 import AutomationsView from '../views/AutomationsView.vue';
+import HistoryView from '../views/HistoryView.vue';
+import SettingsView from '../views/SettingsView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -54,6 +56,18 @@ const router = createRouter({
       path: '/automations',
       name: 'automations',
       component: AutomationsView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: HistoryView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsView,
       meta: { requiresAuth: true },
     },
   ],

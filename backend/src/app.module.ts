@@ -11,6 +11,8 @@ import { TenantsModule } from './modules/tenants/tenants.module';
 import { ShopeeModule } from './modules/shopee/shopee.module';
 import { EvolutionModule } from './modules/evolution/evolution.module';
 import { AutomationsModule } from './modules/automations/automations.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { HistoryModule } from './modules/history/history.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -31,6 +33,8 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     ShopeeModule,
     EvolutionModule,
     AutomationsModule,
+    DashboardModule,
+    HistoryModule,
   ],
   providers: [
     {
