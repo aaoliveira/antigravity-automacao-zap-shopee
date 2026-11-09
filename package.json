@@ -1,0 +1,32 @@
+{
+  "name": "antigravity-automacao-zap-shopee",
+  "version": "1.0.0",
+  "description": "SaaS Multi-tenant de Automação de Afiliados Shopee com Publicação em Grupos WhatsApp via Evolution API",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "docker:up": "docker compose up -d postgres redis",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "test": "npm run test --workspace=backend",
+    "test:cov": "npm run test:cov --workspace=backend",
+    "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
+    "db:migrate": "npm run prisma:migrate --workspace=backend",
+    "db:generate": "npm run prisma:generate --workspace=backend"
+  },
+  "keywords": [
+    "shopee",
+    "affiliate",
+    "whatsapp",
+    "evolution-api",
+    "saas",
+    "multi-tenant",
+    "nestjs",
+    "vue3"
+  ],
+  "author": "Antigravity Engineering Team",
+  "license": "UNLICENSED"
+}

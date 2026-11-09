@@ -23,14 +23,50 @@ Este projeto adota estritamente a metodologia **Spec-Driven Development (SDD)**,
 
 ---
 
-## 🔗 Fontes Oficiais de Integração
+## 🚀 Como Iniciar o Projeto em Desenvolvimento
 
-1. **Shopee Affiliate Open API:**
-   - [Portal Oficial de Desenvolvedores](https://affiliate.shopee.com.br/open_api/home)
-   - [Documentação de Short Link](https://affiliate.shopee.com.br/open_api/list?type=short_link)
+### 1. Pré-requisitos
+- Node.js 20+ (LTS)
+- Docker e Docker Compose instalados
 
-2. **Evolution API:**
-   - [Documentação Oficial](https://docs.evolutionfoundation.com.br/evolution-api)
+### 2. Configurar Variáveis de Ambiente
+Copie o arquivo de exemplo para `.env`:
+```bash
+cp .env.example .env
+cp .env.example backend/.env
+```
+
+### 3. Subir Infraestrutura de Containers (PostgreSQL & Redis)
+Os containers rodam em portas isoladas (`5435` para Postgres e `6382` para Redis) para evitar conflitos com outros serviços locais:
+```bash
+docker compose up -d postgres redis
+```
+
+### 4. Executar Migrations do Banco de Dados
+```bash
+cd backend
+npx prisma migrate dev
+```
+
+### 5. Executar os Testes Automatizados
+```bash
+# Testes Unitários (Criptografia AES-256-GCM, regras de negócio)
+npm run test --workspace=backend
+
+# Testes de Integração e Segurança Multi-Tenant (e2e com banco e redis reais)
+npm run test:e2e --workspace=backend
+```
+
+### 6. Iniciar os Serviços em Modo de Desenvolvimento
+```bash
+# Terminal 1: Iniciar Backend (Porta 3005)
+cd backend && npm run start:dev
+
+# Terminal 2: Iniciar Frontend (Porta 5173)
+cd frontend && npm run dev
+```
+
+Acesse a interface no navegador em: `http://localhost:5173`.
 
 ---
 
@@ -39,4 +75,4 @@ Este projeto adota estritamente a metodologia **Spec-Driven Development (SDD)**,
 1. **Multi-Tenancy Estrito:** Cada tenant possui total isolamento de dados. Credenciais, automações, instâncias WhatsApp e grupos são validados estritamente no backend com base no contexto autenticado.
 2. **Criptografia Autenticada:** Todas as chaves secretas (Shopee `AppSecret`, Evolution API Key) são criptografadas em repouso com algoritmo autenticado (AES-256-GCM) e chaves mantidas fora do banco de dados.
 3. **Zero Alucinações de API:** Nenhuma integração é construída com base em suposições. Todas as operações baseiam-se em contratos oficiais documentados e verificados.
-4. **Idempotência e Observabilidade:** Logs estruturados, controle de concorrência e proteção contra duplicação de disparos.
+4. **Idempotência e Observabilidade:** Logs estruturados, controle de concorrência com Redis e proteção contra duplicação de disparos.

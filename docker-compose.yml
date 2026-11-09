@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # BANCO DE DADOS RELACIONAL (POSTGRESQL 16)
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: shopee_zap_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-shopee_whatsapp_saas}
+    ports:
+      - "${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - shopee_zap_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-shopee_whatsapp_saas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - shopee_zap_network
+
+  # ============================================================================
+  # FILAS E CACHE (REDIS 7)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: shopee_zap_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6382}:6379"
+    volumes:
+      - shopee_zap_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - shopee_zap_network
+
+  # ============================================================================
+  # BACKEND API & WORKER (NESTJS + PRISMA + BULLMQ)
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: shopee_zap_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_dev_password}@postgres:5432/${POSTGRES_DB:-shopee_whatsapp_saas}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production_min_32_chars_long}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_jwt_refresh_secret_change_in_production_32_chars}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    ports:
+      - "${BACKEND_PORT:-3005}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - shopee_zap_network
+
+  # ============================================================================
+  # FRONTEND (VUE 3 + VITE + TAILWIND)
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shopee_zap_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      VITE_API_URL: http://localhost:${BACKEND_PORT:-3005}/api
+    depends_on:
+      - backend
+    networks:
+      - shopee_zap_network
+
+volumes:
+  shopee_zap_pgdata:
+  shopee_zap_redisdata:
+
+networks:
+  shopee_zap_network:
+    name: shopee_zap_network
+    driver: bridge

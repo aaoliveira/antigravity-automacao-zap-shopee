@@ -14,8 +14,8 @@
 | **Prompt 01** | Discovery, PRD e especificações funcionais | **CONCLUÍDO** | 2026-11-09 | 7 / 7 | PRD, Escopo MVP, Personas, Histórias, Regras de Negócio e Matriz de Rastreabilidade criados. |
 | **Prompt 02** | Investigação técnica das APIs e contratos de integração | **CONCLUÍDO** | 2026-11-09 | 6 / 6 | Contratos oficiais Shopee e Evolution v2 mapeados, matriz de compatibilidade e decisões homologadas. |
 | **Prompt 03** | Arquitetura, modelo de dados e desenho de segurança | **CONCLUÍDO** | 2026-11-09 | 7 / 7 | Monólito modular, schema Prisma, contratos REST, BullMQ, AES-256-GCM, STRIDE, ADRs e Test Strategy. |
-| **Prompt 04** | Fundação, autenticação e multi-tenancy | **PENDENTE** | - | 0 / 6 | Próxima etapa a ser iniciada após aprovação. |
-| **Prompt 05** | Credenciais e integração Shopee | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 05. |
+| **Prompt 04** | Fundação, autenticação e multi-tenancy | **CONCLUÍDO** | 2026-11-09 | 7 / 7 | Base executável NestJS + Vue 3, Docker Compose, PostgreSQL + Prisma, Redis, rotas de auth e testes de multi-tenancy. |
+| **Prompt 05** | Credenciais e integração Shopee | **PENDENTE** | - | 0 / 6 | Próxima etapa a ser iniciada após aprovação. |
 | **Prompt 06** | Evolution API, instâncias, QR Code e grupos | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 06. |
 | **Prompt 07** | Automações, scheduler e motor de execução | **PENDENTE** | - | 0 / 7 | Aguardando execução do Prompt 07. |
 | **Prompt 08** | Frontend, dashboard e experiência do usuário | **PENDENTE** | - | 0 / 6 | Aguardando execução do Prompt 08. |
@@ -24,29 +24,32 @@
 
 ---
 
-## 2. Detalhes da Etapa Atual: PROMPT 03
+## 2. Detalhes da Etapa Atual: PROMPT 04
 
-- **Objetivo:** Definir e documentar a arquitetura técnica completa, o modelo relacional em Prisma, os contratos internos da API REST, a arquitetura de filas Redis/BullMQ, a política de segurança com AES-256-GCM, o modelo de ameaças STRIDE, as ADRs estruturais e a estratégia de testes do MVP, sem implementar código executável ainda.
+- **Objetivo:** Implementar a fundação técnica aprovada: containers Docker (Postgres e Redis), banco de dados com migrations Prisma, backend NestJS modular, autenticação segura (JWT, Bcrypt), isolamento multi-tenant estrito, frontend Vue 3 + Tailwind e suíte de testes com validação negativa de acesso entre tenants.
 - **Artefatos Entregues:**
-  - [`prompts/03-ARCHITECTURE-DATA-SECURITY.md`](../../prompts/03-ARCHITECTURE-DATA-SECURITY.md): Registro fiel do Prompt 03.
-  - [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md): Diagrama C4 Container, sequência detalhada de execução e divisão modular no NestJS.
-  - [`docs/architecture/DATABASE_SCHEMA.md`](../architecture/DATABASE_SCHEMA.md): Schema Prisma completo com 14 entidades, relacionamentos, índices, enums e políticas de retenção.
-  - [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md): Especificação de todas as rotas REST internas, headers, payloads de entrada/saída e códigos HTTP.
-  - [`docs/architecture/QUEUE_AND_RELIABILITY.md`](../architecture/QUEUE_AND_RELIABILITY.md): Arquitetura BullMQ/Redis, locks atômicos, retries com backoff, jitter e semântica de entrega at-least-once com proibição de retry cego.
-  - [`docs/security/SECURITY_POLICY.md`](../security/SECURITY_POLICY.md): Criptografia autenticada AES-256-GCM em repouso, gestão de chaves em variáveis de ambiente, sanitização de logs e RBAC.
-  - [`docs/security/THREAT_MODEL.md`](../security/THREAT_MODEL.md): Análise de ameaças STRIDE e mitigações técnicas.
-  - [`docs/architecture/decisions/`](../architecture/decisions/): 4 ADRs formais (`ADR-001` Stack Tecnológica, `ADR-002` Isolamento Multi-Tenancy, `ADR-003` Criptografia AES-256-GCM, `ADR-004` Filas e Idempotência).
-  - [`docs/quality/TEST_STRATEGY.md`](../quality/TEST_STRATEGY.md): Pirâmide de testes com foco obrigatório em testes negativos de isolamento multi-tenant.
+  - [`prompts/04-FOUNDATION-AUTH-TENANCY.md`](../../prompts/04-FOUNDATION-AUTH-TENANCY.md): Registro fiel do Prompt 04.
+  - [`docker-compose.yml`](../../docker-compose.yml): Orquestração de containers com PostgreSQL 16 (porta 5435), Redis 7 (porta 6382), Backend e Frontend em rede isolada.
+  - [`backend/`](../../backend/): Aplicação NestJS modular com módulos `database` (Prisma), `crypto-vault` (AES-256-GCM), `health` (checks de DB e Redis), `queue` (BullMQ), `auth` (cadastro, login, logout, refresh, recuperação) e `tenants`.
+  - [`backend/prisma/schema.prisma`](../../backend/prisma/schema.prisma) e migrations: Migration inicial `20261109135313_init` executada com sucesso em banco limpo.
+  - [`frontend/`](../../frontend/): Aplicação SPA em Vue 3 + Vite + Tailwind CSS com páginas de Login, Cadastro, Recuperação de Senha e Dashboard com layout responsivo (Sidebar, Navbar, estados de loading, erro e vazio).
+  - [`.env.example`](../../.env.example): Variáveis documentadas sem segredos reais expostos.
+  - [`README.md`](../../README.md): Guia passo a passo de desenvolvimento local e testes.
+- **Suíte de Testes Automatizados Executada (17 testes passando):**
+  - `src/modules/crypto-vault/crypto-vault.service.spec.ts`: 4 testes unitários (cifragem, decifragem, integridade de tag GCM e mascaramento).
+  - `test/auth.e2e-spec.ts`: 9 testes de integração (cadastro, validação de senha fraca, rejeição de duplicados, login válido, login inválido, rota protegida sem token, rota protegida com token, rotação de refresh token e logout).
+  - `test/multi-tenancy.e2e-spec.ts`: 3 testes de segurança (isolamento estrito: Tenant B recebe 404 ao tentar acessar recursos criados por Tenant A).
+  - `test/health.e2e-spec.ts`: 1 teste de health check verificando conectividade real de banco e redis.
 - **Critérios de Aceite Validados:**
-  - [x] Diagrama de componentes e sequência do fluxo principal.
-  - [x] Modelo de dados contempla propriedade e integridade.
-  - [x] Estratégia de filas e estados indeterminados está documentada.
-  - [x] Publicação multigrupo possui estado por destino.
-  - [x] Segurança de credenciais e isolamento estão definidos.
-  - [x] Decisões relevantes possuem ADR registrada.
-  - [x] Arquitetura solicitando aprovação formal antes da implementação.
+  - [x] Projeto inicia seguindo README.
+  - [x] Migrations aplicam em banco vazio.
+  - [x] Autenticação funciona.
+  - [x] Rotas protegidas rejeitam usuários não autenticados.
+  - [x] Testes comprovam bloqueio de acesso cruzado.
+  - [x] Nenhum segredo real está versionado.
+  - [x] Health checks identificam dependências disponíveis/indisponíveis.
 
 ---
 
 ## 3. Próximo Passo
-Aguardar aprovação formal da arquitetura pelo usuário para iniciar o **PROMPT 04 (Fundação, autenticação e multi-tenancy)**.
+Aguardar aprovação formal do usuário para a etapa **PROMPT 04** e instrução para avançar ao **PROMPT 05 (Credenciais e integração Shopee)**.
