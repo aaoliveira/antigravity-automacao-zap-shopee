@@ -1,0 +1,428 @@
+# Modelo de Dados Relacional e Schema Prisma (DATABASE_SCHEMA)
+
+> **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
+> **Banco de Dados:** PostgreSQL 16+  
+> **ORM:** Prisma 5+  
+> **Versão:** 1.0 (MVP)  
+> **Metodologia:** Spec-Driven Development (SDD)  
+
+---
+
+## 1. Visão Geral do Modelo de Dados
+
+O modelo de dados foi projetado sob os seguintes pilares:
+1. **Multi-Tenancy Estrito por Chave Estrangeira:** Todas as tabelas de negócio possuem a coluna obrigatória `tenantId UUID` referenciando `tenants(id) ON DELETE CASCADE` (ou `RESTRICT`), acompanhada de índice específico `@@index([tenantId])`.
+2. **Separação de Execução e Publicações:** Uma execução (`AutomationExecution`) sorteia um produto e gera um link curto, enquanto registros individuais em `Publication` controlam o status de envio para cada grupo de destino da automação.
+3. **Snapshots Mínimos de Produtos:** O SaaS não armazena um catálogo estático ou cache global de milhões de produtos da Shopee. Salva-se apenas o `ProductSnapshot` e o `AffiliateLink` no momento da seleção de cada execução, viabilizando desduplicação e auditoria sem inchaço de banco.
+4. **Criptografia Autenticada:** Colunas de segredos (`shopeeAppSecretEncrypted`, `evolutionApiKeyEncrypted`) armazenam strings no formato `iv:ciphertext:tag` cifradas via AES-256-GCM.
+
+---
+
+## 2. Diagrama Entidade-Relacionamento (ERD Conceitual)
+
+```mermaid
+erDiagram
+    Tenant ||--o{ User : "possui"
+    Tenant ||--o{ ShopeeCredential : "possui"
+    Tenant ||--o{ EvolutionServer : "possui"
+    Tenant ||--o{ WhatsAppInstance : "possui"
+    Tenant ||--o{ WhatsAppGroup : "possui"
+    Tenant ||--o{ Automation : "possui"
+    Tenant ||--o{ AutomationExecution : "possui"
+    Tenant ||--o{ AuditLog : "possui"
+
+    EvolutionServer ||--o{ WhatsAppInstance : "hospeda"
+    WhatsAppInstance ||--o{ WhatsAppGroup : "sincroniza"
+    WhatsAppInstance ||--o{ Automation : "utilizada_por"
+
+    ShopeeCredential ||--o{ Automation : "fornece_credencial"
+
+    Automation ||--o{ AutomationKeyword : "possui_nichos"
+    Automation ||--o{ AutomationGroup : "possui_destinos"
+    Automation ||--o{ AutomationExecution : "gera_execucoes"
+
+    WhatsAppGroup ||--o{ AutomationGroup : "vinculado_a"
+
+    AutomationExecution ||--|| ProductSnapshot : "seleciona"
+    AutomationExecution ||--|| AffiliateLink : "gera"
+    AutomationExecution ||--o{ Publication : "registra_disparos"
+
+    WhatsAppGroup ||--o{ Publication : "recebe"
+```
+
+---
+
+## 3. Schema Prisma Oficial (`schema.prisma`)
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS DE DOMÍNIO
+// ==========================================
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum InstanceStatus {
+  CREATED
+  CONNECTING
+  CONNECTED
+  DISCONNECTED
+  DELETED
+}
+
+enum AutomationStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
+enum ExecutionStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILED
+  SKIPPED_NO_ELIGIBLE_PRODUCT
+  SKIPPED_INSTANCE_OFFLINE
+}
+
+enum PublicationStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+// ==========================================
+// 1. TENANTS E USUÁRIOS
+// ==========================================
+
+model Tenant {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @db.VarChar(255)
+  slug             String   @unique @db.VarChar(100)
+  timezone         String   @default("America/Sao_Paulo") @db.VarChar(50)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now()) @db.Timestamptz
+  updatedAt        DateTime @updatedAt @db.Timestamptz
+
+  users            User[]
+  shopeeCredentials ShopeeCredential[]
+  evolutionServers EvolutionServer[]
+  instances        WhatsAppInstance[]
+  groups           WhatsAppGroup[]
+  automations      Automation[]
+  executions       AutomationExecution[]
+  auditLogs        AuditLog[]
+  webhookEvents    WebhookEvent[]
+
+  @@map("tenants")
+}
+
+model User {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @db.Uuid
+  name           String    @db.VarChar(255)
+  email          String    @unique @db.VarChar(255)
+  passwordHash   String    @db.VarChar(255)
+  role           UserRole  @default(OWNER)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @db.Timestamptz
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  auditLogs      AuditLog[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ==========================================
+// 2. INTEGRAÇÃO SHOPEE
+// ==========================================
+
+model ShopeeCredential {
+  id                      String       @id @default(uuid()) @db.Uuid
+  tenantId                String       @db.Uuid
+  label                   String       @db.VarChar(100)
+  appId                   String       @db.VarChar(100)
+  appSecretEncrypted      String       @db.Text // AES-256-GCM iv:ciphertext:tag
+  appSecretMasked         String       @db.VarChar(50)  // ex: ************1234
+  isValid                 Boolean      @default(false)
+  lastValidatedAt         DateTime?    @db.Timestamptz
+  createdAt               DateTime     @default(now()) @db.Timestamptz
+  updatedAt               DateTime     @updatedAt @db.Timestamptz
+
+  tenant                  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  automations             Automation[]
+
+  @@unique([tenantId, appId])
+  @@index([tenantId])
+  @@map("shopee_credentials")
+}
+
+// ==========================================
+// 3. INTEGRAÇÃO EVOLUTION & WHATSAPP
+// ==========================================
+
+model EvolutionServer {
+  id                      String             @id @default(uuid()) @db.Uuid
+  tenantId                String             @db.Uuid
+  name                    String             @db.VarChar(100)
+  baseUrl                 String             @db.VarChar(500)
+  apiKeyEncrypted         String             @db.Text // AES-256-GCM
+  apiKeyMasked            String             @db.VarChar(50)
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now()) @db.Timestamptz
+  updatedAt               DateTime           @updatedAt @db.Timestamptz
+
+  tenant                  Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instances               WhatsAppInstance[]
+
+  @@index([tenantId])
+  @@map("evolution_servers")
+}
+
+model WhatsAppInstance {
+  id               String          @id @default(uuid()) @db.Uuid
+  tenantId         String          @db.Uuid
+  serverId         String          @db.Uuid
+  instanceName     String          @db.VarChar(100)
+  displayName      String          @db.VarChar(100)
+  status           InstanceStatus  @default(CREATED)
+  phoneConnected   String?         @db.VarChar(50)
+  qrCodeBase64     String?         @db.Text
+  lastConnectedAt  DateTime?       @db.Timestamptz
+  createdAt        DateTime        @default(now()) @db.Timestamptz
+  updatedAt        DateTime        @updatedAt @db.Timestamptz
+
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  server           EvolutionServer @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  groups           WhatsAppGroup[]
+  automations      Automation[]
+
+  @@unique([serverId, instanceName])
+  @@index([tenantId])
+  @@map("whatsapp_instances")
+}
+
+model WhatsAppGroup {
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @db.Uuid
+  instanceId       String            @db.Uuid
+  jid              String            @db.VarChar(150) // ex: 120363012345678901@g.us
+  name             String            @db.VarChar(255)
+  participantCount Int?              @default(0)
+  isActive         Boolean           @default(true)
+  lastSyncedAt     DateTime          @default(now()) @db.Timestamptz
+  createdAt        DateTime          @default(now()) @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @db.Timestamptz
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instance         WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  automationGroups AutomationGroup[]
+  publications     Publication[]
+
+  @@unique([instanceId, jid])
+  @@index([tenantId])
+  @@map("whatsapp_groups")
+}
+
+// ==========================================
+// 4. AUTOMAÇÕES E AGENDAMENTO
+// ==========================================
+
+model Automation {
+  id                   String              @id @default(uuid()) @db.Uuid
+  tenantId             String              @db.Uuid
+  instanceId           String              @db.Uuid
+  shopeeCredentialId   String              @db.Uuid
+  name                 String              @db.VarChar(255)
+  status               AutomationStatus    @default(ACTIVE)
+  
+  // Agendamento
+  frequencyMinutes     Int                 @default(60)
+  dailyExecutionLimit  Int                 @default(20)
+  jitterSeconds        Int                 @default(10) // intervalo entre envios para grupos
+  windowStartTime      String              @default("08:00") @db.VarChar(5) // HH:mm
+  windowEndTime        String              @default("22:00") @db.VarChar(5) // HH:mm
+  daysOfWeek           Int[]               @default([1, 2, 3, 4, 5, 6, 7]) // 1=Dom, 7=Sab
+  dedupWindowDays      Int                 @default(7) // Janela de não repetição
+
+  nextExecutionAt      DateTime?           @db.Timestamptz
+  lastExecutedAt       DateTime?           @db.Timestamptz
+  createdAt            DateTime            @default(now()) @db.Timestamptz
+  updatedAt            DateTime            @updatedAt @db.Timestamptz
+
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instance             WhatsAppInstance    @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+  shopeeCredential     ShopeeCredential    @relation(fields: [shopeeCredentialId], references: [id], onDelete: Restrict)
+  
+  keywords             AutomationKeyword[]
+  groups               AutomationGroup[]
+  executions           AutomationExecution[]
+
+  @@index([tenantId])
+  @@index([status, nextExecutionAt])
+  @@map("automations")
+}
+
+model AutomationKeyword {
+  id               String     @id @default(uuid()) @db.Uuid
+  automationId     String     @db.Uuid
+  keyword          String     @db.VarChar(100) // ex: "cozinha", "moda feminina"
+
+  automation       Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, keyword])
+  @@index([automationId])
+  @@map("automation_keywords")
+}
+
+model AutomationGroup {
+  id               String        @id @default(uuid()) @db.Uuid
+  automationId     String        @db.Uuid
+  groupId          String        @db.Uuid
+
+  automation       Automation    @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  group            WhatsAppGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, groupId])
+  @@index([automationId])
+  @@map("automation_groups")
+}
+
+// ==========================================
+// 5. EXECUÇÃO, SNAPSHOTS E PUBLICAÇÕES
+// ==========================================
+
+model AutomationExecution {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @db.Uuid
+  automationId     String           @db.Uuid
+  status           ExecutionStatus  @default(RUNNING)
+  selectedKeyword  String?          @db.VarChar(100)
+  totalDestinations Int             @default(0)
+  successCount     Int              @default(0)
+  failureCount     Int              @default(0)
+  errorMessage     String?          @db.Text
+  startedAt        DateTime         @default(now()) @db.Timestamptz
+  completedAt      DateTime?        @db.Timestamptz
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  automation       Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  
+  productSnapshot  ProductSnapshot?
+  affiliateLink    AffiliateLink?
+  publications     Publication[]
+
+  @@index([tenantId])
+  @@index([automationId, startedAt])
+  @@map("automation_executions")
+}
+
+model ProductSnapshot {
+  id               String              @id @default(uuid()) @db.Uuid
+  executionId      String              @unique @db.Uuid
+  shopeeItemId     String              @db.VarChar(100) // itemId retornado pela Shopee
+  title            String              @db.VarChar(500)
+  price            Decimal             @db.Decimal(10, 2)
+  originalPrice    Decimal?            @db.Decimal(10, 2)
+  imageUrl         String              @db.VarChar(1000)
+  productUrl       String              @db.VarChar(1000)
+  commissionRate   Decimal?            @db.Decimal(5, 4)
+  createdAt        DateTime            @default(now()) @db.Timestamptz
+
+  execution        AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([shopeeItemId])
+  @@map("product_snapshots")
+}
+
+model AffiliateLink {
+  id               String              @id @default(uuid()) @db.Uuid
+  executionId      String              @unique @db.Uuid
+  originalUrl      String              @db.VarChar(1000)
+  shortLink        String              @db.VarChar(255) // https://shope.ee/...
+  subId1           String?             @db.VarChar(50)
+  subId2           String?             @db.VarChar(50)
+  createdAt        DateTime            @default(now()) @db.Timestamptz
+
+  execution        AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@map("affiliate_links")
+}
+
+model Publication {
+  id               String              @id @default(uuid()) @db.Uuid
+  executionId      String              @db.Uuid
+  groupId          String              @db.Uuid
+  status           PublicationStatus   @default(PENDING)
+  evolutionMessageId String?           @db.VarChar(150)
+  errorMessage     String?             @db.Text
+  sentAt           DateTime?           @db.Timestamptz
+  createdAt        DateTime            @default(now()) @db.Timestamptz
+
+  execution        AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  group            WhatsAppGroup       @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@index([executionId])
+  @@index([groupId, sentAt])
+  @@map("publications")
+}
+
+// ==========================================
+// 6. AUDITORIA E EVENTOS
+// ==========================================
+
+model AuditLog {
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @db.Uuid
+  userId           String?      @db.Uuid
+  action           String       @db.VarChar(100) // ex: "CREDENTIAL_UPDATE", "AUTOMATION_DELETE"
+  entityType       String       @db.VarChar(50)  // ex: "Automation", "ShopeeCredential"
+  entityId         String?      @db.VarChar(100)
+  metadataJson     Json?
+  ipAddress        String?      @db.VarChar(50)
+  createdAt        DateTime     @default(now()) @db.Timestamptz
+
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+model WebhookEvent {
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @db.Uuid
+  provider         String       @db.VarChar(50)  // "EVOLUTION"
+  eventType        String       @db.VarChar(100) // "CONNECTION_UPDATE", "QRCODE_UPDATED"
+  payloadJson      Json
+  processed        Boolean      @default(false)
+  createdAt        DateTime     @default(now()) @db.Timestamptz
+
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("webhook_events")
+}
+```
+
+---
+
+## 4. Política de Retenção e Purga de Dados
+
+- **Snapshots e Publicações:** Retenção de 30 dias no banco de dados para o MVP. Um job cron semanal de purga deleta registros de `AutomationExecution` (e em cascata `ProductSnapshot`, `AffiliateLink` e `Publication`) com `completedAt < NOW() - INTERVAL '30 days'`.
+- **Logs de Auditoria (`AuditLog`):** Retenção mínima de 90 dias para conformidade e rastreabilidade.
+- **Eventos de Webhook (`WebhookEvent`):** Retenção de 7 dias para depuração.
