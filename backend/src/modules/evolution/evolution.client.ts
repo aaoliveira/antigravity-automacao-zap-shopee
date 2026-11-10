@@ -39,6 +39,7 @@ export interface CaptionTemplateParams {
   titulo: string;
   preco: string;
   link_afiliado: string;
+  link_grupo?: string;
 }
 
 export const DEFAULT_CAPTION_TEMPLATE = `Oferta encontrada!
@@ -56,14 +57,21 @@ export class EvolutionClient {
 
   /**
    * Formata a legenda da mensagem substituindo as variáveis homologadas:
-   * {titulo}, {preco}, {link_afiliado}
+   * {titulo}, {preco}, {link_afiliado}, {link_grupo}
    */
   formatCaption(template: string | undefined | null, params: CaptionTemplateParams): string {
-    const rawTemplate = template && template.trim().length > 0 ? template : DEFAULT_CAPTION_TEMPLATE;
+    const hasCustomTemplate = Boolean(template && template.trim().length > 0);
+    let rawTemplate = hasCustomTemplate ? template! : DEFAULT_CAPTION_TEMPLATE;
+
+    if (!hasCustomTemplate && params.link_grupo) {
+      rawTemplate = `${rawTemplate}\n\nEntre no nosso grupo: {link_grupo}`;
+    }
+
     return rawTemplate
       .replace(/\{titulo\}/g, params.titulo || '')
       .replace(/\{preco\}/g, params.preco || '')
-      .replace(/\{link_afiliado\}/g, params.link_afiliado || '');
+      .replace(/\{link_afiliado\}/g, params.link_afiliado || '')
+      .replace(/\{link_grupo\}/g, params.link_grupo || '');
   }
 
   /**
@@ -286,6 +294,58 @@ export class EvolutionClient {
     }
 
     return [];
+  }
+
+  /**
+   * Busca metadados atualizados de um grupo específico, incluindo quantidade de participantes (`size`)
+   * via contrato oficial GET /group/findGroupInfos/{instanceName}?groupJid=...
+   */
+  async findGroupInfos(
+    baseUrl: string,
+    apiKey: string,
+    instanceName: string,
+    groupJid: string,
+    timeoutMs = 5000,
+  ): Promise<GroupResponse | null> {
+    const encodedJid = encodeURIComponent(groupJid);
+    return this.request<GroupResponse | null>(
+      baseUrl,
+      apiKey,
+      `/group/findGroupInfos/${instanceName}?groupJid=${encodedJid}`,
+      {
+        method: 'GET',
+        timeoutMs,
+      },
+    );
+  }
+
+  /**
+   * Obtém o código/link oficial de convite do grupo na Evolution API v2
+   * via contrato oficial GET /group/inviteCode/{instanceName}?groupJid=...
+   */
+  async getGroupInviteCode(
+    baseUrl: string,
+    apiKey: string,
+    instanceName: string,
+    groupJid: string,
+  ): Promise<{ inviteUrl: string; inviteCode: string }> {
+    const encodedJid = encodeURIComponent(groupJid);
+    const res = await this.request<{ inviteUrl?: string; inviteCode?: string }>(
+      baseUrl,
+      apiKey,
+      `/group/inviteCode/${instanceName}?groupJid=${encodedJid}`,
+      {
+        method: 'GET',
+        timeoutMs: 8000,
+      },
+    );
+
+    const inviteCode = res?.inviteCode || '';
+    const inviteUrl =
+      res?.inviteUrl ||
+      (inviteCode ? `https://chat.whatsapp.com/${inviteCode}` : '');
+
+    return { inviteUrl, inviteCode };
   }
 
   /**

@@ -11,7 +11,7 @@ import {
   UpdateAutomationDto,
   QueryAutomationsDto,
 } from './dto/automations.dto';
-import { AutomationStatus } from '@prisma/client';
+import { AutomationStatus, DispatchStrategy } from '@prisma/client';
 
 @Injectable()
 export class AutomationsService {
@@ -59,6 +59,15 @@ export class AutomationsService {
             isValid: true,
           },
         },
+        groupRedirectLink: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            isActive: true,
+            strategy: true,
+          },
+        },
         keywords: {
           select: { id: true, keyword: true },
         },
@@ -103,6 +112,15 @@ export class AutomationsService {
             label: true,
             appId: true,
             isValid: true,
+          },
+        },
+        groupRedirectLink: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            isActive: true,
+            strategy: true,
           },
         },
         keywords: {
@@ -166,6 +184,10 @@ export class AutomationsService {
       );
     }
 
+    if (dto.groupRedirectLinkId) {
+      await this.validateGroupRedirectLink(tenantId, dto.groupRedirectLinkId);
+    }
+
     // 4. Calcula o próximo horário de execução agendado
     const nextExecutionAt = this.schedulerService.calculateNextExecution(
       {
@@ -184,6 +206,9 @@ export class AutomationsService {
         name: dto.name.trim(),
         instanceId: dto.instanceId,
         shopeeCredentialId: dto.shopeeCredentialId,
+        groupRedirectLinkId: dto.groupRedirectLinkId || null,
+        dispatchStrategy: (dto.dispatchStrategy || 'ALL_SEQUENTIAL') as DispatchStrategy,
+        captionTemplate: dto.captionTemplate?.trim() || null,
         status: AutomationStatus.ACTIVE,
         frequencyMinutes: dto.frequencyMinutes ?? 60,
         dailyExecutionLimit: dto.dailyExecutionLimit ?? 20,
@@ -203,6 +228,9 @@ export class AutomationsService {
       include: {
         keywords: true,
         groups: { include: { group: true } },
+        groupRedirectLink: {
+          select: { id: true, name: true, slug: true, isActive: true, strategy: true },
+        },
       },
     });
 
@@ -246,6 +274,10 @@ export class AutomationsService {
       }
     }
 
+    if (dto.groupRedirectLinkId) {
+      await this.validateGroupRedirectLink(tenantId, dto.groupRedirectLinkId);
+    }
+
     // Recalcula próxima execução se horários foram alterados
     const frequencyMinutes = dto.frequencyMinutes ?? existing.frequencyMinutes;
     const windowStartTime = dto.windowStartTime ?? existing.windowStartTime;
@@ -284,6 +316,15 @@ export class AutomationsService {
           name: dto.name ? dto.name.trim() : existing.name,
           instanceId: dto.instanceId ?? existing.instanceId,
           shopeeCredentialId: dto.shopeeCredentialId ?? existing.shopeeCredentialId,
+          groupRedirectLinkId:
+            dto.groupRedirectLinkId !== undefined
+              ? dto.groupRedirectLinkId
+              : existing.groupRedirectLinkId,
+          dispatchStrategy: (dto.dispatchStrategy ?? existing.dispatchStrategy) as DispatchStrategy,
+          captionTemplate:
+            dto.captionTemplate !== undefined
+              ? dto.captionTemplate?.trim() || null
+              : existing.captionTemplate,
           frequencyMinutes,
           dailyExecutionLimit: dto.dailyExecutionLimit ?? existing.dailyExecutionLimit,
           jitterSeconds: dto.jitterSeconds ?? existing.jitterSeconds,
@@ -296,6 +337,9 @@ export class AutomationsService {
         include: {
           keywords: true,
           groups: { include: { group: true } },
+          groupRedirectLink: {
+            select: { id: true, name: true, slug: true, isActive: true, strategy: true },
+          },
         },
       });
     });
@@ -398,5 +442,17 @@ export class AutomationsService {
         },
       },
     });
+  }
+
+  private async validateGroupRedirectLink(tenantId: string, linkId: string) {
+    const link = await this.prisma.groupRedirectLink.findFirst({
+      where: { id: linkId, tenantId },
+    });
+    if (!link) {
+      throw new BadRequestException(
+        'O Link Permanente de Grupo informado não pertence a este tenant.',
+      );
+    }
+    return link;
   }
 }

@@ -31,6 +31,17 @@
           </button>
 
           <button
+            @click="activeTab = 'links'"
+            :class="activeTab === 'links' ? 'border-shopee-orange text-shopee-orange' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+            class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm flex items-center transition-colors"
+          >
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            Links Permanentes ({{ groupLinks.length }})
+          </button>
+
+          <button
             @click="activeTab = 'servers'"
             :class="activeTab === 'servers' ? 'border-shopee-orange text-shopee-orange' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
             class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm flex items-center transition-colors"
@@ -292,8 +303,9 @@
                   <th class="py-3 px-4 text-left">Nome do Grupo</th>
                   <th class="py-3 px-4 text-left">JID WhatsApp</th>
                   <th class="py-3 px-4 text-left">Instância</th>
-                  <th class="py-3 px-4 text-center">Membros</th>
-                  <th class="py-3 px-4 text-right">Ação</th>
+                  <th class="py-3 px-4 text-center">Lotação</th>
+                  <th class="py-3 px-4 text-left">Convite</th>
+                  <th class="py-3 px-4 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
@@ -301,14 +313,38 @@
                   <td class="py-3 px-4 font-semibold text-gray-900">{{ grp.name }}</td>
                   <td class="py-3 px-4 font-mono text-xs text-gray-500">{{ grp.jid }}</td>
                   <td class="py-3 px-4 text-gray-600">{{ grp.instance?.displayName }}</td>
-                  <td class="py-3 px-4 text-center text-gray-600">{{ grp.participantCount || '-' }}</td>
-                  <td class="py-3 px-4 text-right">
-                    <button
-                      @click="sendTestMessage(grp)"
-                      class="px-3 py-1 bg-shopee-light text-shopee-orange hover:bg-orange-100 rounded text-xs font-medium"
+                  <td class="py-3 px-4 text-center text-gray-600">
+                    {{ grp.participantCount ?? '-' }} / {{ grp.maxParticipants || 1024 }}
+                  </td>
+                  <td class="py-3 px-4">
+                    <span
+                      v-if="grp.inviteUrl"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-800"
                     >
-                      Disparo Teste
-                    </button>
+                      Convite salvo
+                    </span>
+                    <span
+                      v-else
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600"
+                    >
+                      Não configurado
+                    </span>
+                  </td>
+                  <td class="py-3 px-4 text-right">
+                    <div class="inline-flex items-center gap-2">
+                      <button
+                        @click="openGroupSettingsModal(grp)"
+                        class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium"
+                      >
+                        Convite & Limite
+                      </button>
+                      <button
+                        @click="sendTestMessage(grp)"
+                        class="px-3 py-1 bg-shopee-light text-shopee-orange hover:bg-orange-100 rounded text-xs font-medium"
+                      >
+                        Disparo Teste
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -318,7 +354,19 @@
       </div>
 
       <!-- ========================================== -->
-      <!-- TAB 3: SERVIDORES EVOLUTION               -->
+      <!-- TAB 3: LINKS PERMANENTES DE GRUPO          -->
+      <!-- ========================================== -->
+      <div v-if="activeTab === 'links'" class="space-y-6">
+        <GroupLinksManager
+          :groups="groups"
+          :links="groupLinks"
+          @refresh="refreshAllGroupData"
+          @feedback="showFeedback"
+        />
+      </div>
+
+      <!-- ========================================== -->
+      <!-- TAB 4: SERVIDORES EVOLUTION               -->
       <!-- ========================================== -->
       <div v-if="activeTab === 'servers'" class="space-y-6">
         <!-- Conexão 1-clique com Container Docker da Evolution API -->
@@ -471,6 +519,75 @@
           </div>
         </div>
       </div>
+
+      <!-- Modal de Configuração de Convite e Limite do Grupo -->
+      <div
+        v-if="groupSettingsModalOpen && editingGroup"
+        class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
+      >
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div class="flex items-start justify-between">
+            <div>
+              <h4 class="text-base font-bold text-gray-900">Convite & Limite do Grupo</h4>
+              <p class="text-xs text-gray-500 mt-0.5">{{ editingGroup.name }}</p>
+            </div>
+            <button @click="groupSettingsModalOpen = false" class="text-gray-400 hover:text-gray-600 text-sm font-bold">
+              ✕
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-medium text-gray-700">URL de Convite do WhatsApp</label>
+                <button
+                  type="button"
+                  :disabled="fetchingGroupInvite"
+                  @click="fetchEditingGroupInvite"
+                  class="text-[11px] font-semibold text-blue-600 hover:underline disabled:opacity-50"
+                >
+                  {{ fetchingGroupInvite ? 'Buscando via Evolution...' : 'Importar via Evolution API' }}
+                </button>
+              </div>
+              <input
+                v-model="groupSettingsForm.inviteUrl"
+                type="url"
+                placeholder="https://chat.whatsapp.com/CodigoDoGrupo"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-shopee-orange focus:border-shopee-orange"
+              />
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Limite Máximo de Participantes</label>
+              <input
+                v-model.number="groupSettingsForm.maxParticipants"
+                type="number"
+                min="1"
+                max="2000"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-shopee-orange focus:border-shopee-orange"
+              />
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <button
+              type="button"
+              @click="groupSettingsModalOpen = false"
+              class="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              :disabled="savingGroupSettings"
+              @click="saveGroupSettings"
+              class="px-4 py-2 text-xs font-semibold text-white bg-shopee-orange hover:bg-shopee-hover rounded-lg disabled:opacity-50"
+            >
+              {{ savingGroupSettings ? 'Salvando...' : 'Salvar Configuração' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </AppLayout>
 </template>
@@ -480,11 +597,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import AppLayout from '../components/AppLayout.vue';
 import WhatsAppSetupChecklist from '../components/whatsapp/WhatsAppSetupChecklist.vue';
 import DockerEvolutionCard, { type DockerEvolutionStatus } from '../components/whatsapp/DockerEvolutionCard.vue';
+import GroupLinksManager from '../components/whatsapp/GroupLinksManager.vue';
 import { useAuthStore } from '../stores/auth';
 
 const authStore = useAuthStore();
 
-const activeTab = ref<'instances' | 'groups' | 'servers'>('instances');
+const activeTab = ref<'instances' | 'groups' | 'links' | 'servers'>('instances');
 const showSetupChecklist = ref(false);
 const isLoading = ref(false);
 const feedbackMessage = ref('');
@@ -497,7 +615,14 @@ const connectingDocker = ref(false);
 const servers = ref<any[]>([]);
 const instances = ref<any[]>([]);
 const groups = ref<any[]>([]);
+const groupLinks = ref<any[]>([]);
 const groupSearch = ref('');
+
+const groupSettingsModalOpen = ref(false);
+const editingGroup = ref<any>(null);
+const groupSettingsForm = ref({ inviteUrl: '', maxParticipants: 1024 });
+const fetchingGroupInvite = ref(false);
+const savingGroupSettings = ref(false);
 
 const hasConnectedInstance = computed(() =>
   instances.value.some((inst) => inst.status === 'CONNECTED'),
@@ -900,8 +1025,92 @@ async function sendTestMessage(group: any) {
   }
 }
 
+async function loadGroupLinks() {
+  try {
+    const res = await fetch('/api/group-links', {
+      headers: { Authorization: `Bearer ${authStore.accessToken}` },
+    });
+    const data = await res.json();
+    if (data.success) {
+      groupLinks.value = data.data;
+    }
+  } catch {
+    showFeedback('Falha ao carregar links permanentes de grupos.', true);
+  }
+}
+
+async function refreshAllGroupData() {
+  await Promise.all([loadGroups(), loadGroupLinks()]);
+}
+
+function openGroupSettingsModal(grp: any) {
+  editingGroup.value = grp;
+  groupSettingsForm.value = {
+    inviteUrl: grp.inviteUrl || '',
+    maxParticipants: grp.maxParticipants || 1024,
+  };
+  groupSettingsModalOpen.value = true;
+}
+
+async function fetchEditingGroupInvite() {
+  if (!editingGroup.value) return;
+  fetchingGroupInvite.value = true;
+  try {
+    const res = await fetch(`/api/whatsapp-groups/${editingGroup.value.id}/fetch-invite`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authStore.accessToken}` },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error?.message || data.message || 'Falha ao obter convite via Evolution API.');
+    }
+    if (data.data?.inviteUrl) {
+      groupSettingsForm.value.inviteUrl = data.data.inviteUrl;
+    }
+    showFeedback('Convite oficial obtido com sucesso!');
+    await refreshAllGroupData();
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  } finally {
+    fetchingGroupInvite.value = false;
+  }
+}
+
+async function saveGroupSettings() {
+  if (!editingGroup.value) return;
+  savingGroupSettings.value = true;
+  try {
+    const payload: Record<string, any> = {
+      maxParticipants: Number(groupSettingsForm.value.maxParticipants) || 1024,
+    };
+    if (groupSettingsForm.value.inviteUrl.trim()) {
+      payload.inviteUrl = groupSettingsForm.value.inviteUrl.trim();
+    }
+
+    const res = await fetch(`/api/whatsapp-groups/${editingGroup.value.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error?.message || data.message || 'Falha ao atualizar configuração do grupo.');
+    }
+    showFeedback('Configuração do grupo atualizada com sucesso!');
+    groupSettingsModalOpen.value = false;
+    await refreshAllGroupData();
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  } finally {
+    savingGroupSettings.value = false;
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([loadServers(), loadInstances(), loadGroups(), loadDockerStatus()]);
+  await Promise.all([loadServers(), loadInstances(), loadGroups(), loadGroupLinks(), loadDockerStatus()]);
 });
 
 onUnmounted(() => {

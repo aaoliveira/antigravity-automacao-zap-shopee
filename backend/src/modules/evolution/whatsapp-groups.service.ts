@@ -9,6 +9,7 @@ import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { EvolutionClient, CaptionTemplateParams } from './evolution.client';
 import { EvolutionSsrfValidator } from './evolution-ssrf.validator';
 import { QueryGroupsDto } from './dto/evolution.dto';
+import { UpdateGroupInviteDto } from './dto/group-links.dto';
 import { InstanceStatus } from '@prisma/client';
 
 @Injectable()
@@ -231,5 +232,94 @@ export class WhatsAppGroupsService {
       groupJid: group.jid,
       result,
     };
+  }
+
+  /**
+   * Atualiza link oficial de convite e contagem de participantes de um grupo via Evolution API.
+   */
+  async fetchAndSaveGroupInvite(tenantId: string, groupId: string) {
+    const group = await this.prisma.whatsAppGroup.findFirst({
+      where: { id: groupId, tenantId },
+      include: {
+        instance: { include: { server: true } },
+      },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Grupo WhatsApp não encontrado para o tenant.');
+    }
+
+    if (group.instance.status !== InstanceStatus.CONNECTED) {
+      throw new BadRequestException(
+        `A instância '${group.instance.displayName}' precisa estar CONECTADA para obter o link de convite.`,
+      );
+    }
+
+    const apiKey = this.cryptoVault.decrypt(group.instance.server.apiKeyEncrypted);
+
+    const inviteRes = await this.evolutionClient.getGroupInviteCode(
+      group.instance.server.baseUrl,
+      apiKey,
+      group.instance.instanceName,
+      group.jid,
+    );
+
+    if (!inviteRes?.inviteUrl) {
+      throw new BadRequestException(
+        'Não foi possível obter o link de convite na Evolution API. Verifique se o número conectado é administrador deste grupo.',
+      );
+    }
+
+    let participantCount = group.participantCount ?? 0;
+    try {
+      const info = await this.evolutionClient.findGroupInfos(
+        group.instance.server.baseUrl,
+        apiKey,
+        group.instance.instanceName,
+        group.jid,
+      );
+      if (info && typeof info.size === 'number') {
+        participantCount = info.size;
+      }
+    } catch {
+      // Mantém contagem existente caso findGroupInfos falhe pontualmente
+    }
+
+    const updated = await this.prisma.whatsAppGroup.update({
+      where: { id: group.id },
+      data: {
+        inviteUrl: inviteRes.inviteUrl,
+        participantCount,
+        lastSyncedAt: new Date(),
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Atualiza configurações manuais do grupo (link de convite oficial e limite máximo de membros).
+   */
+  async updateGroupSettings(
+    tenantId: string,
+    groupId: string,
+    dto: UpdateGroupInviteDto,
+  ) {
+    const group = await this.prisma.whatsAppGroup.findFirst({
+      where: { id: groupId, tenantId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Grupo WhatsApp não encontrado para o tenant.');
+    }
+
+    return this.prisma.whatsAppGroup.update({
+      where: { id: group.id },
+      data: {
+        inviteUrl: dto.inviteUrl !== undefined ? dto.inviteUrl.trim() : group.inviteUrl,
+        maxParticipants:
+          dto.maxParticipants !== undefined ? dto.maxParticipants : group.maxParticipants,
+      },
+    });
   }
 }

@@ -205,7 +205,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 
-type TabName = 'instances' | 'groups' | 'servers';
+type TabName = 'instances' | 'groups' | 'links' | 'servers';
 type StepId = 'server' | 'slug' | 'create' | 'qrcode' | 'groups';
 
 interface ChecklistItem {

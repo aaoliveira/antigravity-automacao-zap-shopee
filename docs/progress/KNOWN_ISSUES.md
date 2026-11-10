@@ -3,7 +3,7 @@
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation (MVP)  
 > **Metodologia:** Spec-Driven Development (SDD)  
 > **Status:** Ativo  
-> **Última Atualização:** 2026-11-09  
+> **Última Atualização:** 2026-11-10  
 
 Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de contratos formais de APIs externas, dependências de credenciais de produção e restrições conhecidas das plataformas de terceiros.
 
@@ -25,6 +25,7 @@ Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de 
 - **LIM-003 (Cobrança e Billing):** Não haverá gateway de pagamento ou faturamento automático no MVP. A provisão de acesso/tenant será manual ou auto-cadastro inicial conforme definido no PRD.
 - **LIM-004 (App Mobile):** Plataforma estritamente web responsiva (desktop e mobile web).
 - **LIM-005 (Múltiplos Provedores WhatsApp):** Suporte exclusivo à Evolution API via provider homologado (Baileys) no MVP.
+- **LIM-006 (Obtenção Automática de Convites WhatsApp):** O endpoint `GET /group/inviteCode/{instanceName}` na Evolution API v2 exige que o número conectado à instância seja administrador do grupo no WhatsApp; para grupos onde a instância não seja administradora, o operador deve cadastrar manualmente a URL oficial `https://chat.whatsapp.com/...` na aba de Grupos ou Links Permanentes.
 
 ---
 

@@ -10,6 +10,8 @@ import {
   Matches,
   IsOptional,
   ArrayNotEmpty,
+  IsIn,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateAutomationDto {
@@ -78,6 +80,19 @@ export class CreateAutomationDto {
   @Min(1)
   @Max(30)
   dedupWindowDays?: number = 7;
+
+  @IsOptional()
+  @IsIn(['ALL_SEQUENTIAL', 'RANDOM_ORDER', 'RANDOM_SINGLE'])
+  dispatchStrategy?: 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE' = 'ALL_SEQUENTIAL';
+
+  @IsOptional()
+  @IsUUID()
+  groupRedirectLinkId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  captionTemplate?: string | null;
 }
 
 export class UpdateAutomationDto {
@@ -141,6 +156,19 @@ export class UpdateAutomationDto {
   @Min(1)
   @Max(30)
   dedupWindowDays?: number;
+
+  @IsOptional()
+  @IsIn(['ALL_SEQUENTIAL', 'RANDOM_ORDER', 'RANDOM_SINGLE'])
+  dispatchStrategy?: 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE';
+
+  @IsOptional()
+  @IsUUID()
+  groupRedirectLinkId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  captionTemplate?: string | null;
 }
 
 export class QueryAutomationsDto {

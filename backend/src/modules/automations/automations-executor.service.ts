@@ -12,6 +12,7 @@ import { WhatsAppGroupsService } from '../evolution/whatsapp-groups.service';
 import { AutomationsSchedulerService } from './automations-scheduler.service';
 import {
   AutomationStatus,
+  DispatchStrategy,
   ExecutionStatus,
   PublicationStatus,
   InstanceStatus,
@@ -63,6 +64,7 @@ export class AutomationsExecutorService {
         include: {
           instance: { include: { server: true } },
           shopeeCredential: true,
+          groupRedirectLink: true,
           keywords: true,
           groups: { include: { group: true } },
         },
@@ -241,7 +243,21 @@ export class AutomationsExecutorService {
       }
 
       // 8. Criação do Registro de Execução, Snapshot e Link
-      const totalDestinations = automation.groups.length;
+      const targetGroups = this.selectTargetGroups(
+        automation.groups,
+        automation.dispatchStrategy,
+      );
+      const totalDestinations = targetGroups.length;
+
+      const publicBaseUrl = (
+        process.env.FRONTEND_URL?.split(',')[0] || 'http://localhost:5173'
+      )
+        .trim()
+        .replace(/\/+$/, '');
+      const permanentGroupUrl =
+        automation.groupRedirectLink && automation.groupRedirectLink.isActive
+          ? `${publicBaseUrl}/join/${automation.groupRedirectLink.slug}`
+          : undefined;
 
       const execution = await this.prisma.automationExecution.create({
         data: {
@@ -272,12 +288,12 @@ export class AutomationsExecutorService {
         },
       });
 
-      // 9. Publicação Multi-Grupo Individualizada
+      // 9. Publicação Multi-Grupo Individualizada (respeitando randomização de disparo configurada)
       let successCount = 0;
       let failureCount = 0;
 
-      for (let i = 0; i < automation.groups.length; i++) {
-        const autoGroup = automation.groups[i];
+      for (let i = 0; i < targetGroups.length; i++) {
+        const autoGroup = targetGroups[i];
         const group = autoGroup.group;
 
         // Registra publicação pendente
@@ -302,10 +318,12 @@ export class AutomationsExecutorService {
             group.id,
             {
               mediaUrl: selectedProduct.imageUrl,
+              captionTemplate: automation.captionTemplate || undefined,
               captionParams: {
                 titulo: selectedProduct.title,
                 preco: formattedPrice,
                 link_afiliado: shortLinkUrl,
+                link_grupo: permanentGroupUrl,
               },
             },
           );
@@ -337,7 +355,7 @@ export class AutomationsExecutorService {
         }
 
         // Jitter / Delay entre envios para evitar banimento do WhatsApp
-        if (automation.jitterSeconds > 0 && i < automation.groups.length - 1) {
+        if (automation.jitterSeconds > 0 && i < targetGroups.length - 1) {
           await new Promise((resolve) =>
             setTimeout(resolve, automation.jitterSeconds * 1000),
           );
@@ -403,5 +421,35 @@ export class AutomationsExecutorService {
         `Erro ao atualizar nextExecutionAt da automação ${automation.id}: ${err.message}`,
       );
     }
+  }
+
+  /**
+   * Seleciona e ordena os grupos-alvo de acordo com a estratégia de randomização da automação.
+   * - ALL_SEQUENTIAL: preserva ordem original de todos os grupos.
+   * - RANDOM_ORDER: embaralha todos os grupos com Fisher-Yates para variar a ordem de disparo.
+   * - RANDOM_SINGLE: sorteia exatamente 1 grupo ativo por execução (fallback para todos se nenhum ativo).
+   */
+  selectTargetGroups<T extends { group: { isActive: boolean } }>(
+    groups: T[],
+    strategy: DispatchStrategy,
+  ): T[] {
+    if (groups.length <= 1 || strategy === DispatchStrategy.ALL_SEQUENTIAL) {
+      return [...groups];
+    }
+
+    if (strategy === DispatchStrategy.RANDOM_SINGLE) {
+      const activePool = groups.filter((item) => item.group.isActive);
+      const pool = activePool.length > 0 ? activePool : groups;
+      const randomIndex = Math.floor(Math.random() * pool.length);
+      return [pool[randomIndex]];
+    }
+
+    // RANDOM_ORDER: Fisher-Yates shuffle
+    const shuffled = [...groups];
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
   }
 }

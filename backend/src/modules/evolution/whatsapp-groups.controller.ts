@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   Body,
   Query,
@@ -11,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { WhatsAppGroupsService } from './whatsapp-groups.service';
 import { QueryGroupsDto } from './dto/evolution.dto';
+import { UpdateGroupInviteDto } from './dto/group-links.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantId } from '../../common/decorators/current-user.decorator';
 
@@ -69,6 +71,23 @@ export class WhatsAppGroupsController {
     @Body() body: { text: string },
   ) {
     const data = await this.service.sendTextToGroup(tenantId, id, body.text);
+    return { success: true, data };
+  }
+
+  @Post(':id/fetch-invite')
+  @HttpCode(HttpStatus.OK)
+  async fetchInvite(@TenantId() tenantId: string, @Param('id') id: string) {
+    const data = await this.service.fetchAndSaveGroupInvite(tenantId, id);
+    return { success: true, data };
+  }
+
+  @Patch(':id')
+  async updateGroupSettings(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateGroupInviteDto,
+  ) {
+    const data = await this.service.updateGroupSettings(tenantId, id, dto);
     return { success: true, data };
   }
 }

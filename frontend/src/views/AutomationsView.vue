@@ -84,6 +84,10 @@
               <div class="text-xs text-gray-500 flex flex-wrap gap-x-6 gap-y-1">
                 <span>Instância: <strong class="text-gray-700">{{ auto.instance?.displayName }}</strong></span>
                 <span>Grupos: <strong class="text-gray-700">{{ auto.groups?.length || 0 }} grupos</strong></span>
+                <span>Disparo: <strong class="text-gray-700">{{ formatDispatchStrategy(auto.dispatchStrategy) }}</strong></span>
+                <span v-if="auto.groupRedirectLink">
+                  Link Permanente: <strong class="text-shopee-orange font-mono">/join/{{ auto.groupRedirectLink.slug }}</strong>
+                </span>
                 <span>Intervalo: <strong class="text-gray-700">{{ auto.frequencyMinutes }} min</strong></span>
                 <span>Janela: <strong class="text-gray-700">{{ auto.windowStartTime }} - {{ auto.windowEndTime }}</strong></span>
                 <span>Limite Diário: <strong class="text-gray-700">{{ auto.dailyExecutionLimit }} envios</strong></span>
@@ -266,6 +270,77 @@
               </label>
             </div>
             <p class="text-xs text-gray-500">Selecionados: <strong>{{ wizardData.groupIds.length }} grupos</strong></p>
+
+            <!-- Estratégia de Randomização de Disparos -->
+            <div class="pt-3 border-t border-gray-100 space-y-2">
+              <label class="block text-xs font-semibold text-gray-800">
+                Estratégia de Randomização dos Disparos
+              </label>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <label
+                  v-for="opt in dispatchStrategyOptions"
+                  :key="opt.value"
+                  class="flex items-start gap-2 p-2.5 border rounded-lg cursor-pointer transition-colors"
+                  :class="wizardData.dispatchStrategy === opt.value ? 'border-shopee-orange bg-orange-50/50' : 'border-gray-200 hover:bg-gray-50'"
+                >
+                  <input
+                    type="radio"
+                    name="dispatchStrategy"
+                    :value="opt.value"
+                    v-model="wizardData.dispatchStrategy"
+                    class="mt-0.5 text-shopee-orange focus:ring-shopee-orange"
+                  />
+                  <div>
+                    <p class="text-xs font-semibold text-gray-900">{{ opt.label }}</p>
+                    <p class="text-[11px] text-gray-500 leading-snug">{{ opt.description }}</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Link Permanente do Grupo + Legenda Personalizada -->
+            <div class="pt-3 border-t border-gray-100 space-y-3">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-xs font-semibold text-gray-800">
+                    Link Permanente do Grupo (Opcional — "O grupo mudou, o link continua")
+                  </label>
+                </div>
+                <select
+                  v-model="wizardData.groupRedirectLinkId"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-shopee-orange focus:border-shopee-orange"
+                >
+                  <option value="">Nenhum link permanente vinculado</option>
+                  <option v-for="lnk in groupLinks" :key="lnk.id" :value="lnk.id">
+                    {{ lnk.name }} (/join/{{ lnk.slug }})
+                  </option>
+                </select>
+                <p class="text-[11px] text-gray-500 mt-1">
+                  Quando vinculado, a variável <code class="bg-gray-100 px-1 rounded">{link_grupo}</code> será substituída pela URL única que redireciona para o grupo mais vazio disponível.
+                </p>
+              </div>
+
+              <div>
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                  <label class="block text-xs font-semibold text-gray-800">
+                    Modelo de Legenda Personalizado (Opcional)
+                  </label>
+                  <button
+                    type="button"
+                    @click="applyGroupLinkCaptionTemplate"
+                    class="text-[11px] font-semibold text-shopee-orange hover:underline"
+                  >
+                    + Inserir modelo com &#123;link_grupo&#125;
+                  </button>
+                </div>
+                <textarea
+                  v-model="wizardData.captionTemplate"
+                  rows="3"
+                  placeholder="Deixe em branco para usar o modelo padrão. Variáveis: {titulo}, {preco}, {link_afiliado}, {link_grupo}"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-shopee-orange focus:border-shopee-orange"
+                ></textarea>
+              </div>
+            </div>
           </div>
 
           <!-- ETAPA 4: NICHOS E PALAVRAS-CHAVE -->
@@ -387,6 +462,10 @@
             <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 text-xs space-y-2 text-gray-700">
               <p><strong>Nome:</strong> {{ wizardData.name }}</p>
               <p><strong>Grupos Destinatários:</strong> {{ wizardData.groupIds.length }} grupos selecionados</p>
+              <p><strong>Estratégia de Disparo:</strong> {{ formatDispatchStrategy(wizardData.dispatchStrategy) }}</p>
+              <p v-if="selectedGroupLinkObj">
+                <strong>Link Permanente de Grupo:</strong> {{ selectedGroupLinkObj.name }} (<code class="font-mono">/join/{{ selectedGroupLinkObj.slug }}</code>)
+              </p>
               <p><strong>Nichos:</strong> {{ wizardData.keywords.join(', ') }}</p>
               <p><strong>Frequência:</strong> A cada {{ wizardData.frequencyMinutes }} minutos</p>
               <p><strong>Horário de Envio:</strong> Das {{ wizardData.windowStartTime }} às {{ wizardData.windowEndTime }}</p>
@@ -483,7 +562,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import AppLayout from '../components/AppLayout.vue';
 import { useAuthStore } from '../stores/auth';
 
@@ -493,6 +572,25 @@ const automations = ref<any[]>([]);
 const instances = ref<any[]>([]);
 const credentials = ref<any[]>([]);
 const availableGroups = ref<any[]>([]);
+const groupLinks = ref<any[]>([]);
+
+const dispatchStrategyOptions = [
+  {
+    value: 'ALL_SEQUENTIAL',
+    label: 'Todos em Ordem',
+    description: 'Envia para todos os grupos na ordem cadastrada.',
+  },
+  {
+    value: 'RANDOM_ORDER',
+    label: 'Ordem Randomizada',
+    description: 'Embaralha a ordem dos grupos a cada disparo.',
+  },
+  {
+    value: 'RANDOM_SINGLE',
+    label: '1 Grupo Aleatório',
+    description: 'Sorteia apenas 1 grupo diferente por execução.',
+  },
+] as const;
 
 const isLoading = ref(false);
 const feedbackMessage = ref('');
@@ -509,6 +607,9 @@ const wizardData = ref({
   shopeeCredentialId: '',
   keywords: [] as string[],
   groupIds: [] as string[],
+  dispatchStrategy: 'ALL_SEQUENTIAL' as 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE',
+  groupRedirectLinkId: '',
+  captionTemplate: '',
   frequencyMinutes: 60,
   dailyExecutionLimit: 20,
   jitterSeconds: 10,
@@ -517,6 +618,26 @@ const wizardData = ref({
   daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
   dedupWindowDays: 7,
 });
+
+const selectedGroupLinkObj = computed(() =>
+  groupLinks.value.find((lnk) => lnk.id === wizardData.value.groupRedirectLinkId) || null,
+);
+
+function formatDispatchStrategy(strategy?: string) {
+  switch (strategy) {
+    case 'RANDOM_ORDER':
+      return 'Ordem Randomizada';
+    case 'RANDOM_SINGLE':
+      return '1 Grupo Aleatório';
+    default:
+      return 'Todos em Ordem';
+  }
+}
+
+function applyGroupLinkCaptionTemplate() {
+  wizardData.value.captionTemplate =
+    '🔥 *{titulo}*\n\n💰 Por apenas: *{preco}*\n🛒 Compre agora: {link_afiliado}\n\n📲 Entre no nosso grupo de ofertas (link permanente):\n{link_grupo}';
+}
 
 // Modal de Histórico
 const historyModalOpen = ref(false);
@@ -565,20 +686,25 @@ async function loadAutomations() {
 
 async function loadDependencies() {
   try {
-    const [instRes, credRes] = await Promise.all([
+    const [instRes, credRes, linksRes] = await Promise.all([
       fetch('/api/whatsapp-instances', {
         headers: { Authorization: `Bearer ${authStore.accessToken}` },
       }),
       fetch('/api/shopee-credentials', {
         headers: { Authorization: `Bearer ${authStore.accessToken}` },
       }),
+      fetch('/api/group-links', {
+        headers: { Authorization: `Bearer ${authStore.accessToken}` },
+      }),
     ]);
 
     const instData = await instRes.json();
     const credData = await credRes.json();
+    const linksData = await linksRes.json();
 
     if (instData.success) instances.value = instData.data;
     if (credData.success) credentials.value = credData.data;
+    if (linksData.success) groupLinks.value = linksData.data;
   } catch (err: any) {
     showFeedback('Falha ao carregar dependências.', true);
   }
@@ -609,6 +735,9 @@ function openWizardModal() {
     shopeeCredentialId: '',
     keywords: [],
     groupIds: [],
+    dispatchStrategy: 'ALL_SEQUENTIAL',
+    groupRedirectLinkId: '',
+    captionTemplate: '',
     frequencyMinutes: 60,
     dailyExecutionLimit: 20,
     jitterSeconds: 10,
@@ -650,17 +779,23 @@ async function handleSaveAutomation() {
   isLoading.value = true;
   feedbackMessage.value = '';
   try {
+    const payload = {
+      ...wizardData.value,
+      groupRedirectLinkId: wizardData.value.groupRedirectLinkId || null,
+      captionTemplate: wizardData.value.captionTemplate?.trim() || null,
+    };
+
     const res = await fetch('/api/automations', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authStore.accessToken}`,
       },
-      body: JSON.stringify(wizardData.value),
+      body: JSON.stringify(payload),
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message);
+    if (!res.ok) throw new Error(data.error?.message || data.message);
 
     showFeedback('Automação criada e agendada com sucesso!');
     wizardOpen.value = false;

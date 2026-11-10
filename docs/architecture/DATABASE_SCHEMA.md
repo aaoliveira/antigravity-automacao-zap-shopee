@@ -27,6 +27,7 @@ erDiagram
     Tenant ||--o{ EvolutionServer : "possui"
     Tenant ||--o{ WhatsAppInstance : "possui"
     Tenant ||--o{ WhatsAppGroup : "possui"
+    Tenant ||--o{ GroupRedirectLink : "possui"
     Tenant ||--o{ Automation : "possui"
     Tenant ||--o{ AutomationExecution : "possui"
     Tenant ||--o{ AuditLog : "possui"
@@ -103,6 +104,18 @@ enum PublicationStatus {
   FAILED
 }
 
+enum DispatchStrategy {
+  ALL_SEQUENTIAL
+  RANDOM_ORDER
+  RANDOM_SINGLE
+}
+
+enum GroupLinkStrategy {
+  LEAST_FILLED
+  RANDOM_AVAILABLE
+  MANUAL_WITH_FALLBACK
+}
+
 // ==========================================
 // 1. TENANTS E USUÁRIOS
 // ==========================================
@@ -119,9 +132,10 @@ model Tenant {
   users            User[]
   shopeeCredentials ShopeeCredential[]
   evolutionServers EvolutionServer[]
-  instances        WhatsAppInstance[]
-  groups           WhatsAppGroup[]
-  automations      Automation[]
+  instances          WhatsAppInstance[]
+  groups             WhatsAppGroup[]
+  groupRedirectLinks GroupRedirectLink[]
+  automations        Automation[]
   executions       AutomationExecution[]
   auditLogs        AuditLog[]
   webhookEvents    WebhookEvent[]
@@ -223,19 +237,66 @@ model WhatsAppGroup {
   jid              String            @db.VarChar(150) // ex: 120363012345678901@g.us
   name             String            @db.VarChar(255)
   participantCount Int?              @default(0)
+  maxParticipants  Int               @default(1024)
+  inviteUrl        String?           @db.VarChar(500)
   isActive         Boolean           @default(true)
   lastSyncedAt     DateTime          @default(now()) @db.Timestamptz
   createdAt        DateTime          @default(now()) @db.Timestamptz
   updatedAt        DateTime          @updatedAt @db.Timestamptz
 
-  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  instance         WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  automationGroups AutomationGroup[]
-  publications     Publication[]
+  tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instance               WhatsAppInstance      @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  automationGroups       AutomationGroup[]
+  publications           Publication[]
+  redirectTargets        GroupRedirectTarget[]
+  activeForRedirectLinks GroupRedirectLink[]   @relation("CurrentRedirectGroup")
 
   @@unique([instanceId, jid])
   @@index([tenantId])
   @@map("whatsapp_groups")
+}
+
+model GroupRedirectLink {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @db.Uuid
+  name             String                @db.VarChar(150)
+  slug             String                @unique @db.VarChar(100)
+  strategy         GroupLinkStrategy     @default(LEAST_FILLED)
+  maxParticipants  Int                   @default(1024)
+  isActive         Boolean               @default(true)
+  currentGroupId   String?               @db.Uuid
+  totalClicks      Int                   @default(0)
+  lastRedirectedAt DateTime?             @db.Timestamptz
+  createdAt        DateTime              @default(now()) @db.Timestamptz
+  updatedAt        DateTime              @updatedAt @db.Timestamptz
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  currentGroup     WhatsAppGroup?        @relation("CurrentRedirectGroup", fields: [currentGroupId], references: [id], onDelete: SetNull)
+  targets          GroupRedirectTarget[]
+  automations      Automation[]
+
+  @@index([tenantId])
+  @@map("group_redirect_links")
+}
+
+model GroupRedirectTarget {
+  id               String            @id @default(uuid()) @db.Uuid
+  redirectLinkId   String            @db.Uuid
+  groupId          String            @db.Uuid
+  inviteUrl        String?           @db.VarChar(500)
+  maxParticipants  Int?
+  priority         Int               @default(0)
+  isEnabled        Boolean           @default(true)
+  clicks           Int               @default(0)
+  createdAt        DateTime          @default(now()) @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @db.Timestamptz
+
+  redirectLink     GroupRedirectLink @relation(fields: [redirectLinkId], references: [id], onDelete: Cascade)
+  group            WhatsAppGroup     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([redirectLinkId, groupId])
+  @@index([redirectLinkId])
+  @@map("group_redirect_targets")
 }
 
 // ==========================================
@@ -247,8 +308,11 @@ model Automation {
   tenantId             String              @db.Uuid
   instanceId           String              @db.Uuid
   shopeeCredentialId   String              @db.Uuid
+  groupRedirectLinkId  String?             @db.Uuid
   name                 String              @db.VarChar(255)
   status               AutomationStatus    @default(ACTIVE)
+  dispatchStrategy     DispatchStrategy    @default(ALL_SEQUENTIAL)
+  captionTemplate      String?             @db.Text
   
   // Agendamento
   frequencyMinutes     Int                 @default(60)
@@ -267,6 +331,7 @@ model Automation {
   tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   instance             WhatsAppInstance    @relation(fields: [instanceId], references: [id], onDelete: Restrict)
   shopeeCredential     ShopeeCredential    @relation(fields: [shopeeCredentialId], references: [id], onDelete: Restrict)
+  groupRedirectLink    GroupRedirectLink?  @relation(fields: [groupRedirectLinkId], references: [id], onDelete: SetNull)
   
   keywords             AutomationKeyword[]
   groups               AutomationGroup[]

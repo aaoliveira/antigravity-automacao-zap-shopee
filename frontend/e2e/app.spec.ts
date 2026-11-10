@@ -135,6 +135,14 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
         body: JSON.stringify({ success: true, data: [] }),
       });
     });
+
+    await page.route('**/api/group-links', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: [] }),
+      });
+    });
   });
 
   test('Deve redirecionar visitante não autenticado para /login ao tentar acessar rotas protegidas', async ({ page }) => {
@@ -343,5 +351,232 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await expect(page.locator('text=Evolution API (Docker) conectada e validada com sucesso!')).toBeVisible();
     await expect(page.locator('h5:has-text("Evolution Docker Teste")')).toBeVisible();
     await expect(page.locator('text=Sincronizar Servidor Docker')).toBeVisible();
+  });
+
+  test('Links Permanentes: configura roteamento por grupo mais vazio, troca destino e resolve rota pública /join/:slug', async ({ page }) => {
+    const groupsMock = [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Grupo VIP #1 (Lotado)',
+        jid: '1203630001@g.us',
+        participantCount: 50,
+        maxParticipants: 50,
+        inviteUrl: 'https://chat.whatsapp.com/VipGroupOne001',
+        instance: { displayName: 'WhatsApp Principal' },
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'Grupo VIP #2 (Mais Vazio)',
+        jid: '1203630002@g.us',
+        participantCount: 5,
+        maxParticipants: 50,
+        inviteUrl: 'https://chat.whatsapp.com/VipGroupTwo002',
+        instance: { displayName: 'WhatsApp Principal' },
+      },
+    ];
+
+    const linksStore: any[] = [];
+
+    await page.route('**/api/whatsapp-groups', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: groupsMock }),
+      });
+    });
+
+    await page.route('**/api/group-links', async (route) => {
+      if (route.request().method() === 'POST') {
+        const created = {
+          id: 'lnk-1',
+          name: 'Clube Shopee VIP',
+          slug: 'clube-shopee-vip',
+          strategy: 'LEAST_FILLED',
+          maxParticipants: 50,
+          isActive: true,
+          totalClicks: 0,
+          currentGroupId: groupsMock[1].id,
+          targets: [
+            {
+              id: 't1',
+              groupId: groupsMock[0].id,
+              inviteUrl: groupsMock[0].inviteUrl,
+              maxParticipants: 50,
+              group: groupsMock[0],
+            },
+            {
+              id: 't2',
+              groupId: groupsMock[1].id,
+              inviteUrl: groupsMock[1].inviteUrl,
+              maxParticipants: 50,
+              group: groupsMock[1],
+            },
+          ],
+        };
+        linksStore.splice(0, linksStore.length, created);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: created }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: linksStore }),
+      });
+    });
+
+    await page.route('**/api/group-links/lnk-1', async (route) => {
+      if (route.request().method() === 'PUT') {
+        linksStore[0].currentGroupId = groupsMock[0].id;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: linksStore[0] }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 200, body: JSON.stringify({ success: true, data: linksStore[0] }) });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await page.goto('/whatsapp-instances');
+    await page.click('button:has-text("Links Permanentes")');
+
+    await expect(page.locator('text=O grupo mudou. O link continua.')).toBeVisible();
+
+    await page.fill('input[placeholder="Ex: Clube de Ofertas Shopee VIP"]', 'Clube Shopee VIP');
+    await page.fill('input[placeholder="clube-vip-shopee"]', 'clube-shopee-vip');
+
+    // Marca os dois grupos sincronizados
+    await page.locator('label:has-text("Grupo VIP #1 (Lotado)") input[type="checkbox"]').check();
+    await page.locator('label:has-text("Grupo VIP #2 (Mais Vazio)") input[type="checkbox"]').check();
+
+    await page.click('button:has-text("Criar Link Permanente")');
+    await expect(page.locator('text=Link permanente criado com sucesso!')).toBeVisible();
+    await expect(page.getByText('LOTADO', { exact: true })).toBeVisible();
+    await expect(page.getByText('ATUAL', { exact: true })).toBeVisible();
+
+    // Testa troca manual de destino mantendo o mesmo link permanente
+    await page.click('button:has-text("Definir como Atual")');
+    await expect(page.locator('text=Destino do link')).toBeVisible();
+
+    // Testa acesso público /join/:slug (sem precisar estar na área logada)
+    await page.route('https://chat.whatsapp.com/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'text/plain', body: 'WhatsApp Invite Mock' });
+    });
+    await page.route('**/api/join/clube-shopee-vip/resolve', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            slug: 'clube-shopee-vip',
+            name: 'Clube Shopee VIP',
+            available: true,
+            inviteUrl: 'https://chat.whatsapp.com/VipGroupTwo002',
+            groupName: 'Grupo VIP #2 (Mais Vazio)',
+            participantCount: 5,
+            maxParticipants: 50,
+            message: 'Grupo disponível encontrado.',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/join/clube-shopee-vip');
+    await expect(page.locator('text=Clube Shopee VIP')).toBeVisible();
+    await expect(page.locator('text=Grupo VIP #2 (Mais Vazio)')).toBeVisible();
+    const joinBtn = page.locator('a:has-text("Entrar no Grupo do WhatsApp")');
+    await expect(joinBtn).toHaveAttribute('href', 'https://chat.whatsapp.com/VipGroupTwo002');
+  });
+
+  test('Wizard de Automação: permite configurar randomização de disparos e vincular link permanente {link_grupo}', async ({ page }) => {
+    const instId = 'inst-1';
+    const credId = 'cred-1';
+
+    await page.route('**/api/shopee-credentials', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: credId, label: 'Shopee Principal', appIdMasked: '100***01' }],
+        }),
+      });
+    });
+
+    await page.route('**/api/whatsapp-instances', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: instId, displayName: 'WhatsApp Ofertas', instanceName: 'zap-ofertas', status: 'CONNECTED' }],
+        }),
+      });
+    });
+
+    await page.route(`**/api/whatsapp-groups?instanceId=${instId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [
+            { id: 'grp-1', name: 'Achadinhos 1', jid: '111@g.us', participantCount: 10 },
+            { id: 'grp-2', name: 'Achadinhos 2', jid: '222@g.us', participantCount: 20 },
+          ],
+        }),
+      });
+    });
+
+    await page.route('**/api/group-links', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: 'lnk-vip', name: 'Clube Permanente VIP', slug: 'clube-vip' }],
+        }),
+      });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await page.goto('/automations');
+    await page.click('button:has-text("Nova Automação (Wizard)")');
+
+    // Etapa 1
+    await page.fill('input[placeholder="Ex: Ofertas Achadinhos Casa & Cozinha"]', 'Campanha Randomizada E2E');
+    await page.locator('select').first().selectOption(credId);
+    await page.click('button:has-text("Próxima Etapa")');
+
+    // Etapa 2
+    await expect(page.locator('text=Etapa 2: Seleção da Instância WhatsApp')).toBeVisible();
+    await page.locator('label:has-text("WhatsApp Ofertas")').click();
+    await page.click('button:has-text("Próxima Etapa")');
+
+    // Etapa 3: Seleção de grupos + Estratégia de Randomização + Link Permanente
+    await expect(page.locator('text=Estratégia de Randomização dos Disparos')).toBeVisible();
+    await page.locator('label:has-text("Achadinhos 1") input[type="checkbox"]').check();
+    await page.locator('label:has-text("1 Grupo Aleatório")').click();
+    await page.locator('select').last().selectOption('lnk-vip');
+    await page.click('button:has-text("+ Inserir modelo com {link_grupo}")');
+
+    await expect(page.locator('textarea')).toHaveValue(/\{link_grupo\}/);
   });
 });

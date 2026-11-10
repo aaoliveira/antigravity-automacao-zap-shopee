@@ -4,7 +4,7 @@
 > **Versão da API Avaliada:** Evolution API v2.x  
 > **Provedor Homologado:** `WHATSAPP-BAILEYS`  
 > **Status:** Verificado e Homologado  
-> **Data de Verificação:** 2026-11-09  
+> **Data de Verificação:** 2026-11-10 (`evoapicloud/evolution-api:v2.3.7`)  
 > **Fonte Oficial:** [Evolution API Official Documentation](https://docs.evolutionfoundation.com.br/evolution-api)
 
 ---
@@ -144,6 +144,34 @@
 - **Campos Críticos Persistidos no SaaS:**
   - `id`: JID original do grupo (ex: `1203630192837465@g.us`).
   - `subject`: Nome visível do grupo.
+  - `size`: Quantidade atual de participantes no grupo.
+
+### 3.2 Consultar Informações e Lotação de Grupo (`GET /group/findGroupInfos/{instanceName}`)
+- **Descrição:** Retorna metadados atualizados de um grupo específico, incluindo contagem atual de membros (`size`), usada para validar capacidade máxima antes do redirecionamento em links permanentes.
+- **Parâmetros de Query:** `?groupJid=1203630192837465@g.us`
+- **Headers:** `apikey: <API_KEY>`
+- **Resposta de Sucesso (`HTTP 200 OK`):**
+```json
+{
+  "id": "1203630192837465@g.us",
+  "subject": "Ofertas & Achadinhos Casa VIP",
+  "size": 245,
+  "creation": 1690000000
+}
+```
+
+### 3.3 Obter Código/Link Oficial de Convite (`GET /group/inviteCode/{instanceName}`)
+- **Descrição:** Obtém o código de convite oficial e a URL `https://chat.whatsapp.com/...` de um grupo (verificado diretamente no código compilado da imagem `evoapicloud/evolution-api:v2.3.7`).
+- **Pré-requisito do WhatsApp:** O número conectado à instância precisa ter permissão de **administrador** do grupo. Caso contrário, a Evolution API retorna erro (`"No invite code"`), devendo o link oficial ser informado manualmente pelo operador.
+- **Parâmetros de Query:** `?groupJid=1203630192837465@g.us`
+- **Headers:** `apikey: <API_KEY>`
+- **Resposta de Sucesso (`HTTP 200 OK`):**
+```json
+{
+  "inviteUrl": "https://chat.whatsapp.com/CodigoDeConviteExemplo",
+  "inviteCode": "CodigoDeConviteExemplo"
+}
+```
 
 ---
 
