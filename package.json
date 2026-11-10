@@ -10,9 +10,12 @@
   "scripts": {
     "dev:backend": "npm run start:dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",
-    "docker:up": "docker compose up -d postgres redis",
+    "docker:up": "docker compose up -d postgres redis evolution-api",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
+    "docker:evolution:up": "docker compose up -d postgres redis evolution-api",
+    "docker:evolution:down": "docker compose stop evolution-api",
+    "docker:evolution:logs": "docker compose logs -f evolution-api",
     "test": "npm run test --workspace=backend",
     "test:e2e": "npm run test:e2e --workspace=backend",
     "test:frontend": "npx playwright test --config frontend/playwright.config.ts",

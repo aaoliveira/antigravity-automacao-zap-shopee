@@ -11,10 +11,10 @@
 
 ### 1.1 Inicialização do Ambiente Completo (Docker Compose)
 ```bash
-# 1. Carregar variáveis de ambiente e subir contêineres de infraestrutura
-docker compose up -d postgres redis
+# 1. Carregar variáveis de ambiente e subir contêineres de infraestrutura + Evolution API
+docker compose up -d postgres redis evolution-api
 
-# 2. Verificar estado dos serviços essenciais
+# 2. Verificar estado e healthcheck dos serviços essenciais
 docker compose ps
 
 # 3. Aplicar migrações pendentes no banco
@@ -23,6 +23,9 @@ npm run db:migrate
 # 4. Subir a aplicação completa
 docker compose up -d backend frontend
 ```
+
+> [!NOTE]
+> O container `evolution-api` (`evoapicloud/evolution-api:v2.3.7`) utiliza banco PostgreSQL dedicado (`evolution_api` inicializado automaticamente via `evolution-db-init`) e Redis isolado (`redis://redis:6379/6`). A comunicação interna controlada pelo administrador é autorizada exclusivamente para a origem configurada em `EVOLUTION_DOCKER_BASE_URL` quando `EVOLUTION_DOCKER_ENABLED=true`, preservando a mitigação estrita contra SSRF nos demais endereços e parâmetros.
 
 ### 1.2 Parada Segura dos Serviços (Graceful Shutdown)
 ```bash

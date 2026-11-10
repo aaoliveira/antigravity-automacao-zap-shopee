@@ -108,6 +108,26 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
       });
     });
 
+    await page.route('**/api/evolution-servers/docker/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            enabled: false,
+            configured: false,
+            online: false,
+            displayUrl: null,
+            alreadyConfigured: false,
+            existingServer: null,
+            dockerStartCommand: 'npm run docker:evolution:up',
+            message: 'Desabilitado no mock padrão.',
+          },
+        }),
+      });
+    });
+
     await page.route('**/api/shopee-credentials', async (route) => {
       await route.fulfill({
         status: 200,
@@ -251,5 +271,77 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     // Fecha o checklist
     await checklist.locator('button:has-text("Fechar guia")').click();
     await expect(checklist).toBeHidden();
+  });
+
+  test('WhatsApp & Evolution: exibe status e permite conectar Evolution API rodando via Docker', async ({ page }) => {
+    let dockerLinked = false;
+    const serverList: any[] = [];
+
+    await page.route('**/api/evolution-servers', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: serverList }),
+      });
+    });
+
+    await page.route('**/api/evolution-servers/docker/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            enabled: true,
+            configured: true,
+            online: true,
+            displayUrl: 'http://localhost:8080',
+            alreadyConfigured: dockerLinked,
+            existingServer: dockerLinked
+              ? { id: 'srv-docker-1', name: 'Evolution API (Docker Local)', apiKeyMasked: '****prod' }
+              : null,
+            dockerStartCommand: 'npm run docker:evolution:up',
+            message: 'Container Docker Evolution API conectado e pronto para uso.',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/evolution-servers/docker', async (route) => {
+      dockerLinked = true;
+      const newSrv = {
+        id: 'srv-docker-1',
+        name: 'Evolution Docker Teste',
+        baseUrl: 'http://localhost:8080',
+        apiKeyMasked: '****prod',
+        isActive: true,
+        _count: { instances: 0 },
+      };
+      serverList.splice(0, serverList.length, newSrv);
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: newSrv }),
+      });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await page.goto('/whatsapp-instances');
+    await page.click('button:has-text("Servidores Evolution")');
+
+    await expect(page.locator('text=Usar Evolution API via Docker')).toBeVisible();
+    await expect(page.locator('text=Container Online')).toBeVisible();
+
+    await page.fill('input[placeholder="Ex: Evolution API (Docker Local)"]', 'Evolution Docker Teste');
+    await page.click('button:has-text("Conectar Evolution Docker")');
+
+    await expect(page.locator('text=Evolution API (Docker) conectada e validada com sucesso!')).toBeVisible();
+    await expect(page.locator('h5:has-text("Evolution Docker Teste")')).toBeVisible();
+    await expect(page.locator('text=Sincronizar Servidor Docker')).toBeVisible();
   });
 });

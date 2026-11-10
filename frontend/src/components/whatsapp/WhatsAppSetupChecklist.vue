@@ -106,7 +106,12 @@
 
             <!-- Orientações específicas de preenchimento por etapa -->
             <div v-if="item.id === 'server'" class="text-xs text-gray-600 space-y-1.5 pl-0.5">
-              <p>Na aba <strong>Servidores Evolution</strong>, preencha os 3 campos solicitados:</p>
+              <p>Escolha uma das formas abaixo na aba <strong>Servidores Evolution</strong>:</p>
+              <p class="bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5">
+                <strong>Opção A — Evolution API via Docker (Recomendado para ambiente local):</strong>
+                inicie o container com <code class="bg-white px-1 rounded border border-gray-200">npm run docker:evolution:up</code> e clique em <strong>Conectar Evolution Docker</strong> (URL e API Key são gerenciadas com segurança pelo servidor).
+              </p>
+              <p><strong>Opção B — Servidor Externo:</strong> preencha os 3 campos solicitados:</p>
               <ul class="space-y-1 ml-1">
                 <li class="flex items-start gap-1.5">
                   <span :class="serverFieldStatus.name ? 'text-green-600 font-bold' : 'text-gray-400'">

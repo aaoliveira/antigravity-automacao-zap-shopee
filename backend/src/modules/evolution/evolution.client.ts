@@ -80,7 +80,8 @@ export class EvolutionClient {
     } = {},
   ): Promise<T> {
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
-    EvolutionSsrfValidator.validateUrl(cleanBaseUrl);
+    const isAuthorizedDocker = EvolutionSsrfValidator.isAuthorizedDockerUrl(cleanBaseUrl);
+    EvolutionSsrfValidator.validateUrl(cleanBaseUrl, isAuthorizedDocker);
 
     const url = `${cleanBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
     const method = options.method || 'GET';

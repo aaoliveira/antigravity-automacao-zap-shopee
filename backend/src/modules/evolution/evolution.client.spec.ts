@@ -17,6 +17,8 @@ describe('Evolution API - Unit Tests', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    delete process.env.EVOLUTION_DOCKER_ENABLED;
+    delete process.env.EVOLUTION_DOCKER_BASE_URL;
     jest.clearAllMocks();
   });
 
@@ -77,6 +79,22 @@ describe('Evolution API - Unit Tests', () => {
       expect(() =>
         EvolutionSsrfValidator.validateUrl('http://127.0.0.1:8080', true),
       ).not.toThrow();
+    });
+
+    it('deve autorizar apenas a URL exata configurada para Evolution Docker quando EVOLUTION_DOCKER_ENABLED=true', () => {
+      process.env.EVOLUTION_DOCKER_ENABLED = 'false';
+      process.env.EVOLUTION_DOCKER_BASE_URL = 'http://localhost:8080';
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://localhost:8080')).toBe(false);
+
+      process.env.EVOLUTION_DOCKER_ENABLED = 'true';
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://localhost:8080')).toBe(true);
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://localhost:8080/')).toBe(true);
+
+      // Qualquer outro destino interno ou porta diferente deve continuar bloqueado
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://127.0.0.1:8080')).toBe(false);
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://localhost:3005')).toBe(false);
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://169.254.169.254')).toBe(false);
+      expect(EvolutionSsrfValidator.isAuthorizedDockerUrl('http://10.0.0.1:8080')).toBe(false);
     });
   });
 

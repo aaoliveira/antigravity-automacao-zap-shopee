@@ -160,3 +160,17 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 5 testes passando (`5.0s`).
   - Frontend Build (`vue-tsc && vite build`): 124 módulos compilados (`1.62s`).
 
+### 2026-11-10 — Integração e Orquestração Docker para Evolution API v2
+- **Entregáveis:**
+  - [`docker-compose.yml`](../../docker-compose.yml): Serviços `evolution-db-init` (cria database isolado `evolution_api` no PostgreSQL) e `evolution-api` (`evoapicloud/evolution-api:v2.3.7` na porta `8080`, conectado ao PostgreSQL e Redis `/6`, com volume persistente e healthcheck).
+  - [`package.json`](../../package.json), [`.env.example`](../../.env.example), [`README.md`](../../README.md) e [`docs/operations/RUNBOOK.md`](../../docs/operations/RUNBOOK.md): Scripts `docker:evolution:up`, `docker:evolution:down`, `docker:evolution:logs`, `docker:up` atualizado e variáveis `EVOLUTION_DOCKER_*`.
+  - [`backend/src/modules/evolution/evolution-ssrf.validator.ts`](../../backend/src/modules/evolution/evolution-ssrf.validator.ts) e [`backend/src/modules/evolution/evolution.client.ts`](../../backend/src/modules/evolution/evolution.client.ts): Allowlist estrita (`isAuthorizedDockerUrl`) para a origem Docker configurada pelo administrador sem afrouxar proteção SSRF de payloads arbitrários ou `mediaUrl`.
+  - [`backend/src/modules/evolution/evolution-servers.controller.ts`](../../backend/src/modules/evolution/evolution-servers.controller.ts) e [`backend/src/modules/evolution/evolution-servers.service.ts`](../../backend/src/modules/evolution/evolution-servers.service.ts): Endpoints `GET /api/evolution-servers/docker/status` e `POST /api/evolution-servers/docker` com criptografia AES-256-GCM, mascaramento e isolamento multi-tenant.
+  - [`frontend/src/components/whatsapp/DockerEvolutionCard.vue`](../../frontend/src/components/whatsapp/DockerEvolutionCard.vue), [`frontend/src/views/WhatsAppInstancesView.vue`](../../frontend/src/views/WhatsAppInstancesView.vue) e [`frontend/src/components/whatsapp/WhatsAppSetupChecklist.vue`](../../frontend/src/components/whatsapp/WhatsAppSetupChecklist.vue): Card interativo com status em tempo real do container, comando de inicialização copiável e vínculo em 1 clique.
+- **Validação Live e Suíte de Testes (142 testes aprovados — 0 falhas):**
+  - Container `shopee_zap_evolution_api` (`evoapicloud/evolution-api:v2.3.7`) inicializado com status `healthy` e validado ao vivo com criação de instância, geração real de QR Code (`base64`), consulta de estado (`connecting`) e exclusão limpa.
+  - Backend Unit Tests: 5 suites, 30 testes passando (`3.97s`).
+  - Backend E2E Tests: 10 suites, 106 testes passando (`13.02s`).
+  - Frontend E2E (Playwright): 1 suite, 6 testes passando (`4.6s`).
+  - Build (`backend` + `frontend`): compilação sem erros (`126` módulos frontend).
+

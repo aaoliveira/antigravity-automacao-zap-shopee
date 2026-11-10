@@ -14,6 +14,7 @@ import { EvolutionServersService } from './evolution-servers.service';
 import {
   CreateEvolutionServerDto,
   UpdateEvolutionServerDto,
+  ConnectDockerEvolutionDto,
 } from './dto/evolution.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantId } from '../../common/decorators/current-user.decorator';
@@ -26,6 +27,22 @@ export class EvolutionServersController {
   @Get()
   async list(@TenantId() tenantId: string) {
     const data = await this.service.findAllByTenant(tenantId);
+    return { success: true, data };
+  }
+
+  @Get('docker/status')
+  async dockerStatus(@TenantId() tenantId: string) {
+    const data = await this.service.getDockerStatus(tenantId);
+    return { success: true, data };
+  }
+
+  @Post('docker')
+  @HttpCode(HttpStatus.CREATED)
+  async connectDocker(
+    @TenantId() tenantId: string,
+    @Body() dto: ConnectDockerEvolutionDto,
+  ) {
+    const data = await this.service.provisionDockerServer(tenantId, dto);
     return { success: true, data };
   }
 

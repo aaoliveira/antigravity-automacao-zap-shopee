@@ -107,4 +107,30 @@ export class EvolutionSsrfValidator {
 
     return false;
   }
+
+  /**
+   * Verifica se uma URL corresponde estritamente à instância Docker da Evolution API
+   * habilitada e configurada pelo administrador via variáveis de ambiente.
+   */
+  static isAuthorizedDockerUrl(rawUrl: string): boolean {
+    if (process.env.EVOLUTION_DOCKER_ENABLED !== 'true') {
+      return false;
+    }
+
+    const configuredUrl = (process.env.EVOLUTION_DOCKER_BASE_URL || '').trim();
+    if (!configuredUrl || !rawUrl) {
+      return false;
+    }
+
+    try {
+      const target = new URL(rawUrl);
+      const allowed = new URL(configuredUrl);
+      return (
+        ['http:', 'https:'].includes(allowed.protocol) &&
+        target.origin === allowed.origin
+      );
+    } catch {
+      return false;
+    }
+  }
 }

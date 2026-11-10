@@ -36,10 +36,12 @@ cp .env.example .env
 cp .env.example backend/.env
 ```
 
-### 3. Subir Infraestrutura de Containers (PostgreSQL & Redis)
-Os containers rodam em portas isoladas (`5435` para Postgres e `6382` para Redis) para evitar conflitos com outros serviços locais:
+### 3. Subir Infraestrutura de Containers (PostgreSQL, Redis & Evolution API)
+Os containers rodam em portas isoladas (`5435` para Postgres, `6382` para Redis e `8080` para Evolution API v2) para evitar conflitos com outros serviços locais:
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres redis evolution-api
+# Ou utilize o atalho do monorepo:
+npm run docker:up
 ```
 
 ### 4. Executar Migrations do Banco de Dados

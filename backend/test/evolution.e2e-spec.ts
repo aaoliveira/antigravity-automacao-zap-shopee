@@ -446,4 +446,118 @@ describe('Evolution API e2e & Multi-Tenant Isolation Tests', () => {
       .set('Authorization', `Bearer ${tenantA_token}`)
       .expect(200);
   });
+
+  // ==========================================
+  // 8. INTEGRAÇÃO COM EVOLUTION API DOCKER
+  // ==========================================
+
+  it('Deve exigir autenticação JWT para consultar status ou provisionar Evolution Docker (401)', async () => {
+    await request(app.getHttpServer())
+      .get('/api/evolution-servers/docker/status')
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/api/evolution-servers/docker')
+      .send({ name: 'Docker Sem Auth' })
+      .expect(401);
+  });
+
+  it('Deve informar corretamente quando Evolution Docker estiver desabilitado e bloquear vínculo (400)', async () => {
+    const prevEnabled = process.env.EVOLUTION_DOCKER_ENABLED;
+    process.env.EVOLUTION_DOCKER_ENABLED = 'false';
+
+    try {
+      const statusRes = await request(app.getHttpServer())
+        .get('/api/evolution-servers/docker/status')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .expect(200);
+
+      expect(statusRes.body.success).toBe(true);
+      expect(statusRes.body.data.enabled).toBe(false);
+      expect(statusRes.body.data.online).toBe(false);
+
+      await request(app.getHttpServer())
+        .post('/api/evolution-servers/docker')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .send({ name: 'Docker Desabilitado' })
+        .expect(400);
+    } finally {
+      process.env.EVOLUTION_DOCKER_ENABLED = prevEnabled;
+    }
+  });
+
+  it('Tenant A deve consultar e vincular Evolution Docker cifrando API Key sem expor segredos nem quebrar isolamento multi-tenant', async () => {
+    const prevEnabled = process.env.EVOLUTION_DOCKER_ENABLED;
+    const prevBaseUrl = process.env.EVOLUTION_DOCKER_BASE_URL;
+    const prevApiKey = process.env.EVOLUTION_DOCKER_API_KEY;
+
+    const secretDockerKey = 'docker_evolution_super_secret_key_9988';
+    process.env.EVOLUTION_DOCKER_ENABLED = 'true';
+    process.env.EVOLUTION_DOCKER_BASE_URL = 'http://localhost:8080';
+    process.env.EVOLUTION_DOCKER_API_KEY = secretDockerKey;
+
+    try {
+      // 1. Consulta status antes do vínculo
+      const statusBefore = await request(app.getHttpServer())
+        .get('/api/evolution-servers/docker/status')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .expect(200);
+
+      expect(statusBefore.body.data.enabled).toBe(true);
+      expect(statusBefore.body.data.online).toBe(true);
+      expect(statusBefore.body.data.alreadyConfigured).toBe(false);
+      expect(JSON.stringify(statusBefore.body)).not.toContain(secretDockerKey);
+
+      // 2. Vincula Evolution Docker para o Tenant A
+      const provisionRes = await request(app.getHttpServer())
+        .post('/api/evolution-servers/docker')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .send({ name: 'Evolution Docker Tenant A' })
+        .expect(201);
+
+      expect(provisionRes.body.success).toBe(true);
+      expect(provisionRes.body.data.name).toBe('Evolution Docker Tenant A');
+      expect(provisionRes.body.data.baseUrl).toBe('http://localhost:8080');
+      expect(provisionRes.body.data.apiKeyMasked).toContain('9988');
+      expect(provisionRes.body.data.apiKeyEncrypted).toBeUndefined();
+      expect(JSON.stringify(provisionRes.body)).not.toContain(secretDockerKey);
+
+      const dockerServerId = provisionRes.body.data.id;
+
+      // 3. Confirma criptografia AES-256-GCM no banco
+      const serverInDb = await prisma.evolutionServer.findUnique({
+        where: { id: dockerServerId },
+      });
+      expect(serverInDb?.apiKeyEncrypted).not.toBe(secretDockerKey);
+      expect(serverInDb?.apiKeyEncrypted.split(':').length).toBe(3);
+
+      // 4. Tenant A vê alreadyConfigured = true, Tenant B continua vendo false e não acessa servidor de A
+      const statusTenantA = await request(app.getHttpServer())
+        .get('/api/evolution-servers/docker/status')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .expect(200);
+      expect(statusTenantA.body.data.alreadyConfigured).toBe(true);
+
+      const statusTenantB = await request(app.getHttpServer())
+        .get('/api/evolution-servers/docker/status')
+        .set('Authorization', `Bearer ${tenantB_token}`)
+        .expect(200);
+      expect(statusTenantB.body.data.alreadyConfigured).toBe(false);
+
+      await request(app.getHttpServer())
+        .get(`/api/evolution-servers/${dockerServerId}`)
+        .set('Authorization', `Bearer ${tenantB_token}`)
+        .expect(404);
+
+      // Limpeza do servidor Docker vinculado pelo Tenant A
+      await request(app.getHttpServer())
+        .delete(`/api/evolution-servers/${dockerServerId}`)
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .expect(200);
+    } finally {
+      process.env.EVOLUTION_DOCKER_ENABLED = prevEnabled;
+      process.env.EVOLUTION_DOCKER_BASE_URL = prevBaseUrl;
+      process.env.EVOLUTION_DOCKER_API_KEY = prevApiKey;
+    }
+  });
 });

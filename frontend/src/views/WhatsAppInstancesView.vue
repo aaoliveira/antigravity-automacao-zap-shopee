@@ -94,12 +94,24 @@
             Crie uma nova sessão na Evolution API. Após a criação, leia o QR Code com o aplicativo WhatsApp no seu celular.
           </p>
 
-          <div v-if="servers.length === 0" class="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm mb-4">
-            ⚠️ Nenhum servidor Evolution configurado.
-            <button @click="activeTab = 'servers'" class="font-bold underline ml-1">
-              Cadastre um servidor primeiro
-            </button>
-            para poder criar instâncias.
+          <div v-if="servers.length === 0" class="space-y-4 mb-4">
+            <div class="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+              ⚠️ Nenhum servidor Evolution configurado. Conecte a Evolution API rodando em Docker abaixo ou
+              <button @click="activeTab = 'servers'" class="font-bold underline ml-1">
+                cadastre um servidor externo
+              </button>
+              para poder criar instâncias.
+            </div>
+
+            <DockerEvolutionCard
+              v-if="dockerStatus?.enabled"
+              :status="dockerStatus"
+              :checking="checkingDocker"
+              :connecting="connectingDocker"
+              compact
+              @refresh="loadDockerStatus"
+              @connect="handleConnectDocker"
+            />
           </div>
 
           <form v-else class="space-y-4" @submit.prevent="handleCreateInstance">
@@ -309,9 +321,18 @@
       <!-- TAB 3: SERVIDORES EVOLUTION               -->
       <!-- ========================================== -->
       <div v-if="activeTab === 'servers'" class="space-y-6">
+        <!-- Conexão 1-clique com Container Docker da Evolution API -->
+        <DockerEvolutionCard
+          :status="dockerStatus"
+          :checking="checkingDocker"
+          :connecting="connectingDocker"
+          @refresh="loadDockerStatus"
+          @connect="handleConnectDocker"
+        />
+
         <!-- Formulário de Servidor -->
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h3 class="text-base font-semibold text-gray-900 mb-1">Cadastrar Servidor Evolution API</h3>
+          <h3 class="text-base font-semibold text-gray-900 mb-1">Cadastrar Servidor Evolution API (Externo / Manual)</h3>
           <p class="text-sm text-gray-500 mb-5">
             Insira o endpoint base e a Global API Key do seu servidor Evolution API v2. A chave será cifrada com AES-256-GCM.
           </p>
@@ -458,6 +479,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import AppLayout from '../components/AppLayout.vue';
 import WhatsAppSetupChecklist from '../components/whatsapp/WhatsAppSetupChecklist.vue';
+import DockerEvolutionCard, { type DockerEvolutionStatus } from '../components/whatsapp/DockerEvolutionCard.vue';
 import { useAuthStore } from '../stores/auth';
 
 const authStore = useAuthStore();
@@ -467,6 +489,10 @@ const showSetupChecklist = ref(false);
 const isLoading = ref(false);
 const feedbackMessage = ref('');
 const feedbackIsError = ref(false);
+
+const dockerStatus = ref<DockerEvolutionStatus | null>(null);
+const checkingDocker = ref(false);
+const connectingDocker = ref(false);
 
 const servers = ref<any[]>([]);
 const instances = ref<any[]>([]);
@@ -555,6 +581,55 @@ async function loadServers() {
   }
 }
 
+async function loadDockerStatus() {
+  checkingDocker.value = true;
+  try {
+    const res = await fetch('/api/evolution-servers/docker/status', {
+      headers: { Authorization: `Bearer ${authStore.accessToken}` },
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      dockerStatus.value = data.data;
+    }
+  } catch {
+    // Falha silenciosa de status; usuário pode clicar em Verificar Container
+  } finally {
+    checkingDocker.value = false;
+  }
+}
+
+async function handleConnectDocker(customName?: string) {
+  connectingDocker.value = true;
+  feedbackMessage.value = '';
+  try {
+    const payload = customName && customName.trim().length > 0 ? { name: customName.trim() } : {};
+    const res = await fetch('/api/evolution-servers/docker', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error?.message || data.message || 'Falha ao vincular Evolution API Docker.');
+    }
+
+    showFeedback('Evolution API (Docker) conectada e validada com sucesso!');
+    await Promise.all([loadServers(), loadDockerStatus()]);
+
+    if (data.data?.id && !newInstance.value.serverId) {
+      newInstance.value.serverId = data.data.id;
+    }
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  } finally {
+    connectingDocker.value = false;
+  }
+}
+
 async function handleCreateServer() {
   isLoading.value = true;
   feedbackMessage.value = '';
@@ -595,9 +670,9 @@ async function deleteServer(server: any) {
     if (!res.ok) throw new Error(data.message);
 
     showFeedback('Servidor removido.');
-    await loadServers();
+    await Promise.all([loadServers(), loadDockerStatus()]);
   } catch (err: any) {
-    showFeedback(err.message, true);
+    showFeedback(err.error?.message || err.message, true);
   }
 }
 
@@ -826,7 +901,7 @@ async function sendTestMessage(group: any) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadServers(), loadInstances(), loadGroups()]);
+  await Promise.all([loadServers(), loadInstances(), loadGroups(), loadDockerStatus()]);
 });
 
 onUnmounted(() => {

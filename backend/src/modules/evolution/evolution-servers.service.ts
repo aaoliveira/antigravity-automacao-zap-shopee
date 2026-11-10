@@ -11,11 +11,23 @@ import { EvolutionSsrfValidator } from './evolution-ssrf.validator';
 import {
   CreateEvolutionServerDto,
   UpdateEvolutionServerDto,
+  ConnectDockerEvolutionDto,
 } from './dto/evolution.dto';
 
 @Injectable()
 export class EvolutionServersService {
   private readonly logger = new Logger(EvolutionServersService.name);
+
+  private readonly publicServerSelect = {
+    id: true,
+    tenantId: true,
+    name: true,
+    baseUrl: true,
+    apiKeyMasked: true,
+    isActive: true,
+    createdAt: true,
+    updatedAt: true,
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -210,5 +222,166 @@ export class EvolutionServersService {
 
     const apiKey = this.cryptoVault.decrypt(server.apiKeyEncrypted);
     return { baseUrl: server.baseUrl, apiKey };
+  }
+
+  /**
+   * Lê configuração controlada pelo administrador para Evolution API em Docker.
+   */
+  private getDockerConfig() {
+    const enabled = process.env.EVOLUTION_DOCKER_ENABLED === 'true';
+    const baseUrl = (process.env.EVOLUTION_DOCKER_BASE_URL || '')
+      .trim()
+      .replace(/\/+$/, '');
+    const publicUrl = (process.env.EVOLUTION_SERVER_URL || baseUrl)
+      .trim()
+      .replace(/\/+$/, '');
+    const apiKey = (
+      process.env.EVOLUTION_DOCKER_API_KEY ||
+      process.env.EVOLUTION_API_KEY ||
+      ''
+    ).trim();
+
+    return {
+      enabled,
+      configured: Boolean(enabled && baseUrl && apiKey),
+      baseUrl,
+      publicUrl,
+      apiKey,
+    };
+  }
+
+  /**
+   * Verifica disponibilidade do container Docker da Evolution API e se o tenant já está vinculado.
+   */
+  async getDockerStatus(tenantId: string) {
+    const config = this.getDockerConfig();
+
+    if (!config.enabled) {
+      return {
+        enabled: false,
+        configured: false,
+        online: false,
+        displayUrl: null,
+        alreadyConfigured: false,
+        existingServer: null,
+        dockerStartCommand: 'npm run docker:evolution:up',
+        message:
+          'Integração com Evolution API Docker está desabilitada pelo administrador (EVOLUTION_DOCKER_ENABLED=true).',
+      };
+    }
+
+    if (!config.configured) {
+      return {
+        enabled: true,
+        configured: false,
+        online: false,
+        displayUrl: config.publicUrl || null,
+        alreadyConfigured: false,
+        existingServer: null,
+        dockerStartCommand: 'npm run docker:evolution:up',
+        message:
+          'Configuração Docker da Evolution API incompleta no backend (EVOLUTION_DOCKER_BASE_URL e EVOLUTION_DOCKER_API_KEY).',
+      };
+    }
+
+    const existing = await this.prisma.evolutionServer.findFirst({
+      where: { tenantId, baseUrl: config.baseUrl },
+      select: this.publicServerSelect,
+    });
+
+    let online = false;
+    let message = 'Container Docker Evolution API conectado e pronto para uso.';
+
+    try {
+      await this.evolutionClient.pingServer(config.baseUrl, config.apiKey);
+      online = true;
+    } catch {
+      online = false;
+      message = `Container Evolution API não respondeu em ${config.publicUrl || config.baseUrl}. Inicie-o com: npm run docker:evolution:up`;
+    }
+
+    return {
+      enabled: true,
+      configured: true,
+      online,
+      displayUrl: config.publicUrl,
+      alreadyConfigured: Boolean(existing),
+      existingServer: existing,
+      dockerStartCommand: 'npm run docker:evolution:up',
+      message,
+    };
+  }
+
+  /**
+   * Vincula ou sincroniza o servidor Evolution API rodando em Docker para o tenant autenticado.
+   * URL e API Key vêm exclusivamente da configuração administrativa (mitigação total de SSRF).
+   */
+  async provisionDockerServer(tenantId: string, dto: ConnectDockerEvolutionDto) {
+    const config = this.getDockerConfig();
+
+    if (!config.enabled) {
+      throw new BadRequestException(
+        'O uso da Evolution API via Docker não está habilitado no servidor (EVOLUTION_DOCKER_ENABLED=true).',
+      );
+    }
+
+    if (!config.configured) {
+      throw new BadRequestException(
+        'Configuração Docker da Evolution API incompleta no servidor (EVOLUTION_DOCKER_BASE_URL / EVOLUTION_DOCKER_API_KEY).',
+      );
+    }
+
+    EvolutionSsrfValidator.validateUrl(config.baseUrl, true);
+
+    try {
+      await this.evolutionClient.pingServer(config.baseUrl, config.apiKey);
+    } catch {
+      throw new BadRequestException(
+        `Não foi possível comunicar com o container Evolution API (${config.publicUrl}). Execute 'npm run docker:evolution:up' e tente novamente.`,
+      );
+    }
+
+    const apiKeyEncrypted = this.cryptoVault.encrypt(config.apiKey);
+    const apiKeyMasked = this.cryptoVault.maskSecret(config.apiKey);
+    const desiredName = dto.name?.trim() || 'Evolution API (Docker Local)';
+
+    const existing = await this.prisma.evolutionServer.findFirst({
+      where: { tenantId, baseUrl: config.baseUrl },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.evolutionServer.update({
+        where: { id: existing.id },
+        data: {
+          name: dto.name?.trim() ? desiredName : existing.name,
+          apiKeyEncrypted,
+          apiKeyMasked,
+          isActive: true,
+        },
+        select: this.publicServerSelect,
+      });
+
+      this.logger.log(
+        `Servidor Evolution Docker sincronizado: ${updated.id} para o tenant ${tenantId}`,
+      );
+      return updated;
+    }
+
+    const created = await this.prisma.evolutionServer.create({
+      data: {
+        tenantId,
+        name: desiredName,
+        baseUrl: config.baseUrl,
+        apiKeyEncrypted,
+        apiKeyMasked,
+        isActive: true,
+      },
+      select: this.publicServerSelect,
+    });
+
+    this.logger.log(
+      `Servidor Evolution Docker vinculado: ${created.id} para o tenant ${tenantId}`,
+    );
+    return created;
   }
 }

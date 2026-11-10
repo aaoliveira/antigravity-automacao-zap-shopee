@@ -45,6 +45,14 @@ export class UpdateEvolutionServerDto {
   apiKey?: string;
 }
 
+export class ConnectDockerEvolutionDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  name?: string;
+}
+
 export class CreateWhatsAppInstanceDto {
   @IsUUID()
   @IsNotEmpty()
