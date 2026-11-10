@@ -3,7 +3,7 @@
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
 > **Metodologia:** Spec-Driven Development (SDD)  
 > **Status:** Ativo  
-> **Última Atualização:** 2026-11-09  
+> **Última Atualização:** 2026-11-10  
 
 ---
 
@@ -39,3 +39,16 @@
 - **Decisão:** Aprovado o **Cenário A**: a entidade `evolution_servers` pertence estritamente ao `tenant_id`, permitindo que cada cliente cadastre sua própria URL base e Global API Key. Ao mesmo tempo, o modelo permite tecnicamente que a plataforma vincule um servidor compartilhado padrão caso desejado.
 - **Justificativa:** Garante isolamento estrito de infraestrutura, reduz os custos operacionais do SaaS no MVP e dá autonomia total aos clientes avançados.
 - **Impacto em Artefatos:** Modelagem de dados (`docs/architecture/` e Prompt 03).
+
+---
+
+### DEC-004: Separação Explícita entre Estado `PAUSED` e `INACTIVE` para Edição e Exclusão de Automações
+- **ID da Dúvida Relacionada:** `Q-AUT-01`
+- **Data da Decisão:** 2026-11-10
+- **Aprovador:** Product Owner (Usuário)
+- **Contexto:** Necessidade de distinguir pausa operacional temporária (para ajustes sem risco de perda) de desativação prévia obrigatória antes da exclusão definitiva da automação.
+- **Decisão:** Aprovada a **Alternativa A**: adicionar o valor `INACTIVE` ao enum `AutomationStatus` (`ACTIVE`, `PAUSED`, `INACTIVE`, `DELETED`) com transição explícita via `PATCH /api/automations/:id/deactivate`.
+  - **Edição (`PUT /api/automations/:id`):** permitida quando a automação estiver `PAUSED` **ou** `INACTIVE` (`409 Conflict` se `ACTIVE` ou `DELETED`).
+  - **Exclusão (`DELETE /api/automations/:id`):** permitida **somente** quando a automação estiver `INACTIVE` (`409 Conflict` se `ACTIVE` ou `PAUSED`).
+- **Justificativa:** Evita exclusão acidental de automações apenas pausadas durante manutenção de campanhas e torna explícito o ciclo de vida operacional (`Ativa` -> `Pausada` / `Inativa` -> `Excluída`).
+- **Impacto em Artefatos:** Migration Prisma no enum `AutomationStatus`, `ADR-006`, `API_CONTRACTS.md`, `BUSINESS_RULES.md`, `ACCEPTANCE_CRITERIA.md`, `DATABASE_SCHEMA.md`, `AutomationsView.vue` e testes automatizados.

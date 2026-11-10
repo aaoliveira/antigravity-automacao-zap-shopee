@@ -41,6 +41,7 @@ describe('AutomationsService - Edição Restrita a Automações Pausadas/Inativa
       automation: {
         findFirst: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn().mockResolvedValue({}),
       },
       automationKeyword: {
         deleteMany: jest.fn().mockResolvedValue({}),
@@ -67,6 +68,7 @@ describe('AutomationsService - Edição Restrita a Automações Pausadas/Inativa
 
     mockSchedulerService = {
       calculateNextExecution: jest.fn().mockReturnValue(new Date('2026-11-11T10:00:00Z')),
+      enqueueAutomationJob: jest.fn().mockResolvedValue({ jobId: 'job-1' }),
     };
 
     service = new AutomationsService(mockPrisma, mockSchedulerService);
@@ -175,5 +177,95 @@ describe('AutomationsService - Edição Restrita a Automações Pausadas/Inativa
     await expect(
       service.update(tenantB, automationId, { name: 'Hack' }),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('deve PERMITIR edição quando automação estiver INACTIVE mantendo-a INACTIVE', async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(
+      makeAutomation(AutomationStatus.INACTIVE),
+    );
+    mockPrisma.automation.update.mockResolvedValue({
+      ...makeAutomation(AutomationStatus.INACTIVE),
+      name: 'Inativa Editada',
+    });
+
+    const updated = await service.update(tenantA, automationId, {
+      name: 'Inativa Editada',
+    });
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(updated.status).toBe(AutomationStatus.INACTIVE);
+  });
+
+  describe('Exclusão restrita ao estado INACTIVE e transição deactivate', () => {
+    it('deve BLOQUEAR exclusão de automação com status ACTIVE lançando ConflictException (409)', async () => {
+      mockPrisma.automation.findFirst.mockResolvedValue(
+        makeAutomation(AutomationStatus.ACTIVE),
+      );
+
+      await expect(service.remove(tenantA, automationId)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockPrisma.automation.delete).not.toHaveBeenCalled();
+    });
+
+    it('deve BLOQUEAR exclusão de automação apenas PAUSED lançando ConflictException (409)', async () => {
+      mockPrisma.automation.findFirst.mockResolvedValue(
+        makeAutomation(AutomationStatus.PAUSED),
+      );
+
+      await expect(service.remove(tenantA, automationId)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockPrisma.automation.delete).not.toHaveBeenCalled();
+    });
+
+    it('deve PERMITIR exclusão exclusivamente quando automação estiver INACTIVE', async () => {
+      mockPrisma.automation.findFirst.mockResolvedValue(
+        makeAutomation(AutomationStatus.INACTIVE),
+      );
+
+      const res = await service.remove(tenantA, automationId);
+      expect(res.success).toBe(true);
+      expect(mockPrisma.automation.delete).toHaveBeenCalledWith({
+        where: { id: automationId },
+      });
+    });
+
+    it('MULTI-TENANCY: remove deve lançar NotFoundException (404) antes de validar status se outro tenant tentar excluir', async () => {
+      mockPrisma.automation.findFirst.mockResolvedValue(null);
+
+      await expect(service.remove(tenantB, automationId)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockPrisma.automation.delete).not.toHaveBeenCalled();
+    });
+
+    it('deve inativar automação via deactivate limpando nextExecutionAt e bloquear executeNow/pause enquanto INACTIVE', async () => {
+      mockPrisma.automation.findFirst.mockResolvedValue(
+        makeAutomation(AutomationStatus.PAUSED),
+      );
+      mockPrisma.automation.update.mockResolvedValue({
+        ...makeAutomation(AutomationStatus.INACTIVE),
+        nextExecutionAt: null,
+      });
+
+      const res = await service.deactivate(tenantA, automationId);
+      expect(res.status).toBe(AutomationStatus.INACTIVE);
+      expect(mockPrisma.automation.update).toHaveBeenCalledWith({
+        where: { id: automationId },
+        data: { status: AutomationStatus.INACTIVE, nextExecutionAt: null },
+      });
+
+      mockPrisma.automation.findFirst.mockResolvedValue(
+        makeAutomation(AutomationStatus.INACTIVE),
+      );
+      await expect(service.executeNow(tenantA, automationId)).rejects.toThrow(
+        ConflictException,
+      );
+      await expect(service.pause(tenantA, automationId)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockSchedulerService.enqueueAutomationJob).not.toHaveBeenCalled();
+    });
   });
 });

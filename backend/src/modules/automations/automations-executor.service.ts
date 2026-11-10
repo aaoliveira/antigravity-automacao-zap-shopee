@@ -74,7 +74,19 @@ export class AutomationsExecutorService {
         throw new NotFoundException('Automação não encontrada ou não pertence a este tenant.');
       }
 
-      // Validação de estado ativo
+      // Validação de estado inativo / excluído ou pausado
+      if (
+        automation.status === AutomationStatus.INACTIVE ||
+        automation.status === AutomationStatus.DELETED
+      ) {
+        this.logger.log(`Automação ${automationId} está inativa/excluída. Abortando execução.`);
+        return {
+          success: false,
+          message: 'Automação inativa ou excluída.',
+          status: ExecutionStatus.FAILED,
+        };
+      }
+
       if (automation.status !== AutomationStatus.ACTIVE && !isManual) {
         this.logger.log(`Automação ${automationId} está pausada. Ignorando disparo agendado.`);
         return {

@@ -240,17 +240,20 @@ export class AutomationsService {
   }
 
   /**
-   * Atualiza uma automação existente somente quando estiver pausada ou inativa (`PAUSED`),
+   * Atualiza uma automação existente somente quando estiver pausada ou inativa (`PAUSED` | `INACTIVE`),
    * recalculando agendamento para retomada futura sem alterar o status atual.
    */
   async update(tenantId: string, id: string, dto: UpdateAutomationDto) {
     const existing = await this.findOne(tenantId, id);
 
-    // Regra de negócio: somente automações pausadas/inativas podem ser editadas
-    const editableStatuses: string[] = [AutomationStatus.PAUSED, 'INACTIVE'];
+    // Regra de negócio (DEC-004): somente automações pausadas ou inativas podem ser editadas
+    const editableStatuses: AutomationStatus[] = [
+      AutomationStatus.PAUSED,
+      AutomationStatus.INACTIVE,
+    ];
     if (!editableStatuses.includes(existing.status)) {
       throw new ConflictException(
-        'Somente automações pausadas ou inativas podem ser editadas. Pause a automação antes de editar.',
+        'Somente automações pausadas ou inativas podem ser editadas. Pause ou inative a automação antes de editar.',
       );
     }
 
@@ -364,10 +367,19 @@ export class AutomationsService {
   }
 
   /**
-   * Pausa a automação (`PAUSED`).
+   * Pausa temporariamente a automação (`PAUSED`). Não permite pausar automação inativa/excluída.
    */
   async pause(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id);
+
+    if (
+      existing.status === AutomationStatus.INACTIVE ||
+      existing.status === AutomationStatus.DELETED
+    ) {
+      throw new ConflictException(
+        'Não é possível pausar uma automação inativa ou excluída. Reative-a antes.',
+      );
+    }
 
     const updated = await this.prisma.automation.update({
       where: { id },
@@ -378,10 +390,39 @@ export class AutomationsService {
   }
 
   /**
-   * Retoma a automação (`ACTIVE`) e recalcula horários de execução.
+   * Inativa a automação (`INACTIVE`), desabilitando execuções e liberando exclusão definitiva.
+   */
+  async deactivate(tenantId: string, id: string) {
+    const existing = await this.findOne(tenantId, id);
+
+    if (existing.status === AutomationStatus.DELETED) {
+      throw new ConflictException('Automação já foi excluída.');
+    }
+
+    const updated = await this.prisma.automation.update({
+      where: { id },
+      data: {
+        status: AutomationStatus.INACTIVE,
+        nextExecutionAt: null,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Automação inativada com sucesso.',
+      status: updated.status,
+    };
+  }
+
+  /**
+   * Retoma ou reativa a automação (`ACTIVE`) a partir de `PAUSED` ou `INACTIVE`, recalculando horários.
    */
   async resume(tenantId: string, id: string) {
     const existing = await this.findOne(tenantId, id);
+
+    if (existing.status === AutomationStatus.DELETED) {
+      throw new ConflictException('Automação excluída não pode ser reativada.');
+    }
 
     const nextExecutionAt = this.schedulerService.calculateNextExecution(
       {
@@ -401,7 +442,7 @@ export class AutomationsService {
       },
     });
 
-    return { success: true, message: 'Automação retomada com sucesso.', status: updated.status };
+    return { success: true, message: 'Automação reativada com sucesso.', status: updated.status };
   }
 
   /**
@@ -409,6 +450,15 @@ export class AutomationsService {
    */
   async executeNow(tenantId: string, id: string) {
     const automation = await this.findOne(tenantId, id);
+
+    if (
+      automation.status === AutomationStatus.INACTIVE ||
+      automation.status === AutomationStatus.DELETED
+    ) {
+      throw new ConflictException(
+        'Automação inativa não pode ser disparada. Reative a automação antes de executar.',
+      );
+    }
 
     const { jobId } = await this.schedulerService.enqueueAutomationJob(
       automation.id,
@@ -424,10 +474,16 @@ export class AutomationsService {
   }
 
   /**
-   * Exclui a automação.
+   * Exclui a automação somente quando estiver inativa (`INACTIVE`).
    */
   async remove(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id);
+
+    if (existing.status !== AutomationStatus.INACTIVE) {
+      throw new ConflictException(
+        'Somente automações inativas podem ser excluídas. Inative a automação antes de excluir.',
+      );
+    }
 
     await this.prisma.automation.delete({
       where: { id },

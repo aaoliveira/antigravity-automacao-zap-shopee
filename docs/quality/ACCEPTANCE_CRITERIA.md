@@ -81,7 +81,7 @@ Todos os Requisitos Funcionais (RF-01 a RF-16) possuem critérios de aceite obje
 
 ### RF-09: Gestão de Automações
 - [ ] **AC-RF09-01:** Criação de automação permite vincular 1 instância, $N$ grupos e $M$ categorias.
-- [x] **AC-RF09-02:** Ações de editar (permitido somente quando `PAUSED`/inativa; bloqueado com `409` quando `ACTIVE`), pausar (`PAUSED`), retomar (`ACTIVE`) e excluir (`DELETED`) funcionam e alteram o estado no banco.
+- [x] **AC-RF09-02:** Ações de editar (permitido somente quando `PAUSED` ou `INACTIVE`; `409` se `ACTIVE`), pausar (`PAUSED`), inativar (`INACTIVE`), retomar/reativar (`ACTIVE`) e excluir (permitido **somente** quando `INACTIVE`; `409` se `ACTIVE` ou `PAUSED`) funcionam conforme `DEC-004`.
 - [ ] **AC-RF09-03:** Uma exclusão de automação requer confirmação explícita na interface.
 - [ ] **AC-RF09-04:** Um botão "Executar Agora" permite o disparo manual imediato, que segue rigorosamente o mesmo fluxo de publicação do agendador.
 

@@ -1,9 +1,9 @@
 # Dúvidas Bloqueantes e Perguntas Abertas (OPEN_QUESTIONS)
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
-> **Versão do Documento:** 1.1 (Atualizado pós-decisões do PO)  
+> **Versão do Documento:** 1.3 (Q-AUT-01 aprovada pelo PO)  
 > **Metodologia:** Spec-Driven Development (SDD)  
-> **Data:** 2026-11-09  
+> **Data:** 2026-11-10  
 
 ---
 
@@ -39,3 +39,21 @@
 ### Q-ARC-02: Política de Fuso Horário e Horário de Verão
 - **Proposta:** Timestamps em UTC (`TIMESTAMPTZ`), conversão no agendador para o timezone configurado no tenant (padrão `America/Sao_Paulo`).
 - **Status:** **APROVADA TACITAMENTE / EM REVISÃO NA ARQUITETURA**.
+
+---
+
+## 3. Dúvidas Bloqueantes de Regra de Negócio (Automações)
+
+### Q-AUT-01: Distinção entre Estado `PAUSED` (Pausada) e `INACTIVE` (Inativa) para Edição e Exclusão de Automações
+- **Contexto:** O modelo aprovado atualmente em [`backend/prisma/schema.prisma`](../../backend/prisma/schema.prisma) define `AutomationStatus` com apenas três valores: `ACTIVE`, `PAUSED` e `DELETED` (sem enum `INACTIVE` dedicado). Enquanto o requisito anterior solicitou permitir edição quando a automação estiver *"pausada ou inativa"*, o novo requisito solicita permitir exclusão *"somente se a automação estiver inativa"*.
+- **Alternativas Disponíveis:**
+  - *Alternativa A — Criar estado explícito `INACTIVE` separado de `PAUSED`:* Adiciona `INACTIVE` ao enum `AutomationStatus` (nova migration Prisma), endpoint `PATCH /api/automations/:id/deactivate` (além de `pause`/`resume`) e botão `Inativar`/`Reativar` na interface. Edição liberada em `PAUSED` ou `INACTIVE`; exclusão liberada **exclusivamente** em `INACTIVE`.
+    - **Vantagens:** Diferencia claramente uma pausa temporária (`PAUSED`, que protege contra exclusão acidental) de uma desativação definitiva pré-exclusão (`INACTIVE`); atende literalmente ambos os requisitos sem ambiguidade.
+    - **Desvantagens / Impactos:** Altera schema de banco (migration), contrato REST (`API_CONTRACTS.md`), métricas do Dashboard (`DashboardService`), UI e suíte de testes E2E existente.
+  - *Alternativa B — Tratar `PAUSED` como o único estado não ativo (pausada/inativa):* Mantém o schema atual (`ACTIVE`, `PAUSED`, `DELETED`), bloqueando exclusão de automações `ACTIVE` (`HTTP 409 Conflict` no backend e botão `Excluir` desabilitado na UI) e liberando exclusão quando `PAUSED`.
+    - **Vantagens:** Mantém o schema e a interface enxutos sem migration nem novo botão de transição de estado.
+    - **Desvantagens / Impactos:** Não diferencia `Pausada` de `Inativa`; uma automação apenas pausada poderá ser excluída diretamente.
+- **Recomendação Técnica:** **Alternativa A** caso deseje proteger automações pausadas contra exclusão acidental exigindo inativação prévia; **Alternativa B** caso "pausada" e "inativa" sejam sinônimos operacionais no MVP.
+- **Bloqueia etapa?** **DESBLOQUEADA APÓS APROVAÇÃO.**
+- **Status:** **APROVADA PELO PO (2026-11-10) — Alternativa A selecionada.**
+- **Decisão Oficial:** Ver [`DEC-004` em DECISION_LOG.md](DECISION_LOG.md#dec-004-separação-explícita-entre-estado-paused-e-inactive-para-edição-e-exclusão-de-automações).

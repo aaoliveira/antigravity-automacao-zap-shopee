@@ -61,7 +61,7 @@
               <div class="flex items-center space-x-3">
                 <h5 class="text-base font-bold text-gray-900">{{ auto.name }}</h5>
                 <span
-                  :class="auto.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'"
+                  :class="getStatusBadgeClass(auto.status)"
                   class="px-2.5 py-0.5 rounded-full text-xs font-semibold"
                 >
                   {{ formatAutomationStatusLabel(auto.status) }}
@@ -99,6 +99,9 @@
                 <span v-if="auto.status === 'ACTIVE' && auto.nextExecutionAt">
                   Próxima execução: <strong class="text-shopee-orange">{{ formatDateTime(auto.nextExecutionAt) }}</strong>
                 </span>
+                <span v-else-if="auto.status === 'INACTIVE'" class="text-gray-500 italic">
+                  Automação inativa (pode ser editada, reativada ou excluída).
+                </span>
                 <span v-else class="text-gray-400 italic">Automação pausada.</span>
               </div>
             </div>
@@ -108,8 +111,12 @@
               <!-- Botão Disparo Manual Imediato -->
               <button
                 @click="triggerExecuteNow(auto)"
-                class="px-3.5 py-1.5 bg-shopee-light text-shopee-orange hover:bg-orange-100 text-xs font-semibold rounded-lg transition-colors flex items-center"
-                title="Executar agora sem esperar o agendamento"
+                :disabled="auto.status === 'INACTIVE'"
+                :class="auto.status === 'INACTIVE'
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                  : 'bg-shopee-light text-shopee-orange hover:bg-orange-100'"
+                class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center"
+                :title="auto.status === 'INACTIVE' ? 'Reative a automação para disparar' : 'Executar agora sem esperar o agendamento'"
               >
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -117,13 +124,24 @@
                 Disparar Agora
               </button>
 
-              <!-- Botão Pausar / Retomar -->
+              <!-- Botão Pausar / Retomar / Reativar -->
               <button
                 @click="togglePauseResume(auto)"
                 :class="auto.status === 'ACTIVE' ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-green-50 text-green-700 hover:bg-green-100'"
                 class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors"
               >
-                {{ auto.status === 'ACTIVE' ? 'Pausar' : 'Retomar' }}
+                {{ auto.status === 'ACTIVE' ? 'Pausar' : auto.status === 'INACTIVE' ? 'Reativar' : 'Retomar' }}
+              </button>
+
+              <!-- Botão Inativar (habilitado quando ACTIVE ou PAUSED; necessário antes de excluir) -->
+              <button
+                v-if="auto.status !== 'INACTIVE'"
+                type="button"
+                @click="deactivateAutomation(auto)"
+                class="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
+                title="Desativar automação definitivamente até reativação manual ou exclusão"
+              >
+                Inativar
               </button>
 
               <!-- Botão Editar (somente se pausada ou inativa) -->
@@ -148,10 +166,16 @@
                 Histórico
               </button>
 
-              <!-- Botão Excluir -->
+              <!-- Botão Excluir (somente se inativa) -->
               <button
+                type="button"
                 @click="deleteAutomation(auto)"
-                class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg transition-colors"
+                :disabled="!isAutomationDeletable(auto)"
+                :title="isAutomationDeletable(auto) ? 'Excluir automação inativa' : 'Inative a automação para poder excluir'"
+                :class="isAutomationDeletable(auto)
+                  ? 'bg-red-50 hover:bg-red-100 text-red-700'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'"
+                class="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
               >
                 Excluir
               </button>
@@ -652,6 +676,21 @@ function isAutomationEditable(auto: any): boolean {
   return auto?.status === 'PAUSED' || auto?.status === 'INACTIVE';
 }
 
+function isAutomationDeletable(auto: any): boolean {
+  return auto?.status === 'INACTIVE';
+}
+
+function getStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'ACTIVE':
+      return 'bg-green-100 text-green-800';
+    case 'INACTIVE':
+      return 'bg-gray-200 text-gray-700';
+    default:
+      return 'bg-amber-100 text-amber-800';
+  }
+}
+
 function formatAutomationStatusLabel(status: string): string {
   switch (status) {
     case 'ACTIVE':
@@ -901,7 +940,7 @@ async function handleSaveAutomation() {
 
     showFeedback(
       isEditing
-        ? 'Automação atualizada com sucesso! Clique em Retomar quando desejar reativá-la.'
+        ? 'Automação atualizada com sucesso! Clique em Retomar/Reativar quando desejar ativá-la.'
         : 'Automação criada e agendada com sucesso!',
     );
     closeWizardModal();
@@ -924,9 +963,31 @@ async function togglePauseResume(auto: any) {
       headers: { Authorization: `Bearer ${authStore.accessToken}` },
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message);
+    if (!res.ok) throw new Error(data.error?.message || data.message);
 
-    showFeedback(`Automação ${auto.status === 'ACTIVE' ? 'pausada' : 'retomada'} com sucesso.`);
+    showFeedback(
+      auto.status === 'ACTIVE'
+        ? 'Automação pausada com sucesso.'
+        : auto.status === 'INACTIVE'
+          ? 'Automação reativada com sucesso.'
+          : 'Automação retomada com sucesso.',
+    );
+    await loadAutomations();
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  }
+}
+
+async function deactivateAutomation(auto: any) {
+  try {
+    const res = await fetch(`/api/automations/${auto.id}/deactivate`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${authStore.accessToken}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || data.message);
+
+    showFeedback('Automação inativada com sucesso. Agora ela pode ser editada ou excluída.');
     await loadAutomations();
   } catch (err: any) {
     showFeedback(err.message, true);
@@ -940,7 +1001,7 @@ async function triggerExecuteNow(auto: any) {
       headers: { Authorization: `Bearer ${authStore.accessToken}` },
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message);
+    if (!res.ok) throw new Error(data.error?.message || data.message);
 
     showFeedback('Disparo manual enfileirado no BullMQ com sucesso!');
   } catch (err: any) {
@@ -965,6 +1026,14 @@ async function openExecutionsModal(auto: any) {
 }
 
 async function deleteAutomation(auto: any) {
+  if (!isAutomationDeletable(auto)) {
+    showFeedback(
+      'Somente automações inativas podem ser excluídas. Inative a automação antes de excluir.',
+      true,
+    );
+    return;
+  }
+
   if (!confirm(`Deseja realmente excluir a automação '${auto.name}'?`)) return;
 
   try {
@@ -973,7 +1042,7 @@ async function deleteAutomation(auto: any) {
       headers: { Authorization: `Bearer ${authStore.accessToken}` },
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message);
+    if (!res.ok) throw new Error(data.error?.message || data.message);
 
     showFeedback('Automação excluída com sucesso.');
     await loadAutomations();

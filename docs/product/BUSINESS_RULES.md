@@ -60,7 +60,7 @@ RN-PUB (Publicação, Jitter e Idempotência)
 ### Domínio: Motor de Automação, Agendamento e Seleção (RN-AUT)
 
 - **RN-AUT-001 (Concorrência e Idempotência de Execução):** Uma mesma automação nunca pode ter duas execuções ocorrendo simultaneamente. Ao iniciar uma execução (agendada ou manual), um lock distribuído ou transacional com tempo de expiração (`TTL`) deve ser adquirido. Se o lock estiver ocupado, a nova execução é ignorada.
-- **RN-AUT-002 (Respeito a Pausas e Exclusões):** Se uma automação for pausada (`PAUSED`) ou excluída (`DELETED`), nenhum job agendado poderá ser disparado. Se um job estiver na fila e a automação for pausada antes do processamento, o job é descartado graciosamente.
+- **RN-AUT-002 (Respeito a Pausas, Inativações e Exclusões):** Se uma automação estiver pausada (`PAUSED`), inativa (`INACTIVE`) ou excluída (`DELETED`), nenhum job agendado poderá ser disparado; além disso, automações `INACTIVE` não aceitam disparo manual até serem reativadas.
 - **RN-AUT-003 (Janela de Horário e Dias Permitidos):** Uma automação só pode disparar mensagens dentro da sua janela horária (ex: 08:00 às 22:00) e nos dias da semana habilitados, calculados com base no fuso horário configurado no tenant (padrão `America/Sao_Paulo`). Se o horário do disparo cair fora da janela, o disparo é reprogramado para o início da próxima janela válida.
 - **RN-AUT-004 (Sorteio Uniforme de Categorias / Nichos de Busca):** Conforme decisão DEC-001, cada automação pode conter 1 ou mais categorias/nichos configurados via palavras-chave de busca (ex: "cozinha", "moda", "celular"). Quando uma automação tiver $N$ nichos/termos associados ($N > 1$), o sorteio do nicho a ser consultado na Shopee deve ser pseudo-aleatório com distribuição uniforme, garantindo igual probabilidade para cada nicho ao longo do tempo.
 - **RN-AUT-005 (Desduplicação e Janela de Não Repetição):** Uma automação não pode publicar um produto que já tenha sido publicado por ela mesma dentro de uma janela configurável (padrão de 7 dias / 168 horas). 
@@ -68,7 +68,8 @@ RN-PUB (Publicação, Jitter e Idempotência)
   1. Tentar sortear outro nicho/termo configurado na mesma automação (se houver).
   2. Caso todos os nichos estejam sem produtos inéditos, registrar a execução como `SKIPPED_NO_ELIGIBLE_PRODUCT` e concluir o ciclo sem erro e sem forçar repetição.
 - **RN-AUT-007 (Sem Viés de Primeira Posição):** A busca de produtos na Shopee não deve limitar a escolha apenas ao primeiro item da lista ou primeira página. O algoritmo deve sortear aleatoriamente o índice do produto entre o conjunto de candidatos elegíveis obtidos.
-- **RN-AUT-008 (Edição Restrita a Automações Pausadas ou Inativas):** Uma automação existente só pode ser editada quando estiver pausada ou inativa (`PAUSED`/`INACTIVE`). Automações com status `ACTIVE` ou `DELETED` devem rejeitar alterações retornando `HTTP 409 Conflict`, exigindo pausa explícita antes da edição.
+- **RN-AUT-008 (Edição Restrita a Automações Pausadas ou Inativas):** Conforme `DEC-004`, uma automação existente só pode ser editada quando estiver pausada (`PAUSED`) ou inativa (`INACTIVE`). Automações com status `ACTIVE` ou `DELETED` rejeitam alterações retornando `HTTP 409 Conflict`.
+- **RN-AUT-009 (Exclusão Restrita a Automações Inativas):** Conforme `DEC-004`, uma automação existente só pode ser excluída quando estiver explicitamente inativa (`INACTIVE`). Automações com status `ACTIVE` ou `PAUSED` rejeitam exclusão retornando `HTTP 409 Conflict`, exigindo inativação prévia via `PATCH /api/automations/:id/deactivate`.
 
 ---
 

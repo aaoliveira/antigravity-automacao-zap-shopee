@@ -13,6 +13,7 @@ export class DashboardService {
     const [
       activeAutomations,
       pausedAutomations,
+      inactiveAutomations,
       connectedInstances,
       totalInstances,
       successfulPublications,
@@ -24,6 +25,9 @@ export class DashboardService {
       }),
       this.prisma.automation.count({
         where: { tenantId, status: AutomationStatus.PAUSED },
+      }),
+      this.prisma.automation.count({
+        where: { tenantId, status: AutomationStatus.INACTIVE },
       }),
       this.prisma.whatsAppInstance.count({
         where: { tenantId, status: InstanceStatus.CONNECTED },
@@ -68,7 +72,8 @@ export class DashboardService {
       automations: {
         active: activeAutomations,
         paused: pausedAutomations,
-        total: activeAutomations + pausedAutomations,
+        inactive: inactiveAutomations,
+        total: activeAutomations + pausedAutomations + inactiveAutomations,
       },
       instances: {
         connected: connectedInstances,

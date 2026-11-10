@@ -86,6 +86,7 @@ enum InstanceStatus {
 enum AutomationStatus {
   ACTIVE
   PAUSED
+  INACTIVE
   DELETED
 }
 

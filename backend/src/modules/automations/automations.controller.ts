@@ -64,6 +64,12 @@ export class AutomationsController {
     return { success: true, data };
   }
 
+  @Patch(':id/deactivate')
+  async deactivate(@TenantId() tenantId: string, @Param('id') id: string) {
+    const data = await this.service.deactivate(tenantId, id);
+    return { success: true, data };
+  }
+
   @Patch(':id/resume')
   async resume(@TenantId() tenantId: string, @Param('id') id: string) {
     const data = await this.service.resume(tenantId, id);

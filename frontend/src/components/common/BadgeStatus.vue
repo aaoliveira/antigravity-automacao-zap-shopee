@@ -67,6 +67,8 @@ const label = computed(() => {
       return 'Ativa';
     case 'PAUSED':
       return 'Pausada';
+    case 'INACTIVE':
+      return 'Inativa';
     case 'CONNECTED':
       return 'Conectada';
     case 'DISCONNECTED':

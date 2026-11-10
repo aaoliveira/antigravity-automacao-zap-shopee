@@ -664,6 +664,15 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
       });
     });
 
+    await page.route('**/api/automations/auto-paused-1/deactivate', async (route) => {
+      automationsList[1].status = 'INACTIVE';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { status: 'INACTIVE' } }),
+      });
+    });
+
     await page.route('**/api/automations/auto-paused-1', async (route) => {
       if (route.request().method() === 'PUT') {
         const body = route.request().postDataJSON();
@@ -672,6 +681,15 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ success: true, data: automationsList[1] }),
+        });
+        return;
+      }
+      if (route.request().method() === 'DELETE') {
+        automationsList.splice(1, 1);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: { message: 'Removida' } }),
         });
         return;
       }
@@ -686,12 +704,15 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
 
     await page.goto('/automations');
 
-    // Card ativo deve manter o botão Editar desabilitado
+    // Card ativo deve manter os botões Editar e Excluir desabilitados
     const activeCard = page.locator('.divide-y > div', { hasText: 'Automação Em Execução' });
     await expect(activeCard.locator('button:has-text("Editar")')).toBeDisabled();
+    await expect(activeCard.locator('button:has-text("Excluir")')).toBeDisabled();
 
-    // Card pausado deve permitir clicar em Editar
+    // Card pausado deve permitir Editar, mas manter Excluir desabilitado (precisa estar INACTIVE)
     const pausedCard = page.locator('.divide-y > div', { hasText: 'Automação Pausada Original' });
+    await expect(pausedCard.locator('button:has-text("Excluir")')).toBeDisabled();
+
     const editBtn = pausedCard.locator('button:has-text("Editar")');
     await expect(editBtn).toBeEnabled();
     await editBtn.click();
@@ -706,6 +727,20 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await page.click('button:has-text("Salvar Alterações")');
 
     await expect(page.locator('text=Automação atualizada com sucesso!')).toBeVisible();
-    await expect(page.locator('h5:has-text("Automação Pausada Editada")')).toBeVisible();
+    const editedCard = page.locator('.divide-y > div', { hasText: 'Automação Pausada Editada' });
+    await expect(editedCard).toBeVisible();
+
+    // Inativa a automação para liberar exclusão
+    await editedCard.locator('button:has-text("Inativar")').click();
+    await expect(page.locator('text=Automação inativada com sucesso.')).toBeVisible();
+    await expect(editedCard.getByText('Inativa', { exact: true })).toBeVisible();
+    await expect(editedCard.locator('button:has-text("Editar")')).toBeEnabled();
+    await expect(editedCard.locator('button:has-text("Excluir")')).toBeEnabled();
+
+    // Exclui somente após estar inativa
+    page.once('dialog', (dialog) => dialog.accept());
+    await editedCard.locator('button:has-text("Excluir")').click();
+    await expect(page.locator('text=Automação excluída com sucesso.')).toBeVisible();
+    await expect(page.locator('h5:has-text("Automação Pausada Editada")')).toHaveCount(0);
   });
 });

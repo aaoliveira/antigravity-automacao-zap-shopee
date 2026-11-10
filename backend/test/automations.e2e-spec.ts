@@ -352,6 +352,77 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
       .expect(200);
   });
 
+  it('Somente automações inativas podem ser excluídas (409 para ACTIVE/PAUSED; 200 após INACTIVE)', async () => {
+    // Cria automação dedicada para testar o ciclo de vida completo de exclusão
+    const createTemp = await request(app.getHttpServer())
+      .post('/api/automations')
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({
+        name: 'Automação Ciclo Inativação e Exclusão',
+        instanceId: tenantA_instanceId,
+        shopeeCredentialId: tenantA_shopeeCredId,
+        keywords: ['mochila'],
+        groupIds: [tenantA_group1Id],
+        frequencyMinutes: 60,
+      })
+      .expect(201);
+
+    const tempId = createTemp.body.data.id;
+
+    // 1. Estando ACTIVE, exclusão é bloqueada (409)
+    await request(app.getHttpServer())
+      .delete(`/api/automations/${tempId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(409);
+
+    // 2. Pausa (PAUSED): exclusão continua bloqueada (409) pois ainda não está INACTIVE
+    await request(app.getHttpServer())
+      .patch(`/api/automations/${tempId}/pause`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    const pausedDelRes = await request(app.getHttpServer())
+      .delete(`/api/automations/${tempId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(409);
+
+    expect(JSON.stringify(pausedDelRes.body)).toMatch(/inativas/i);
+
+    // 3. Inativa via PATCH .../deactivate -> status INACTIVE
+    const deactRes = await request(app.getHttpServer())
+      .patch(`/api/automations/${tempId}/deactivate`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    expect(deactRes.body.data.status).toBe('INACTIVE');
+
+    // Enquanto INACTIVE: disparo manual bloqueado (409), mas edição permitida (200)
+    await request(app.getHttpServer())
+      .post(`/api/automations/${tempId}/execute-now`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(409);
+
+    const editInactive = await request(app.getHttpServer())
+      .put(`/api/automations/${tempId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({ name: 'Automação Inativa Editada Antes de Excluir' })
+      .expect(200);
+
+    expect(editInactive.body.data.status).toBe('INACTIVE');
+
+    // 4. Estando INACTIVE, exclusão é finalmente permitida (200)
+    await request(app.getHttpServer())
+      .delete(`/api/automations/${tempId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    // Confirma que foi removida
+    await request(app.getHttpServer())
+      .get(`/api/automations/${tempId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(404);
+  });
+
   // ==========================================
   // 2. EXECUÇÃO MULTI-GRUPO E DESDUPLICAÇÃO
   // ==========================================

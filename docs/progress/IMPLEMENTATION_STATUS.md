@@ -212,3 +212,16 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 9 testes passando (`7.6s`).
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`130` módulos frontend em `2.49s`) sem erros.
 
+### 2026-11-10 — Separação do Estado `INACTIVE` e Exclusão Restrita a Automações Inativas (`Q-AUT-01` / `DEC-004`)
+- **Entregáveis:**
+  - [`backend/prisma/schema.prisma`](../../backend/prisma/schema.prisma) e migration `20261110235329_add_automation_inactive_status`: Adicionado valor `INACTIVE` ao enum `AutomationStatus`.
+  - [`backend/src/modules/automations/automations.controller.ts`](../../backend/src/modules/automations/automations.controller.ts), [`automations.service.ts`](../../backend/src/modules/automations/automations.service.ts), [`automations-executor.service.ts`](../../backend/src/modules/automations/automations-executor.service.ts), [`dto/automations.dto.ts`](../../backend/src/modules/automations/dto/automations.dto.ts) e [`backend/src/modules/dashboard/dashboard.service.ts`](../../backend/src/modules/dashboard/dashboard.service.ts): Novo endpoint `PATCH /api/automations/:id/deactivate`, bloqueio estrito de exclusão (`DELETE /api/automations/:id`) quando `status !== INACTIVE` (`HTTP 409`), liberação de edição para `PAUSED` e `INACTIVE`, bloqueio de `executeNow`/agendamento quando `INACTIVE` e contabilização de `inactive` no resumo do Dashboard.
+  - [`frontend/src/views/AutomationsView.vue`](../../frontend/src/views/AutomationsView.vue) e [`frontend/src/components/common/BadgeStatus.vue`](../../frontend/src/components/common/BadgeStatus.vue): Badge `Inativa`, botão `Inativar` (disponível quando `ACTIVE`/`PAUSED`), botão `Reativar` quando `INACTIVE`, botão `Disparar Agora` desabilitado quando `INACTIVE` e botão `Excluir` habilitado exclusivamente quando `INACTIVE`.
+  - Governança & ADRs: [`docs/product/OPEN_QUESTIONS.md`](../product/OPEN_QUESTIONS.md) (`Q-AUT-01`), [`docs/product/DECISION_LOG.md`](../product/DECISION_LOG.md) (`DEC-004`), [`docs/architecture/decisions/ADR-006-ciclo-de-vida-automacao-pausada-vs-inativa.md`](../architecture/decisions/ADR-006-ciclo-de-vida-automacao-pausada-vs-inativa.md), [`docs/architecture/DATABASE_SCHEMA.md`](../architecture/DATABASE_SCHEMA.md), [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md), [`docs/product/BUSINESS_RULES.md`](../product/BUSINESS_RULES.md) (`RN-AUT-009`) e [`docs/quality/ACCEPTANCE_CRITERIA.md`](../quality/ACCEPTANCE_CRITERIA.md).
+  - Testes atualizados: [`backend/src/modules/automations/automations.service.spec.ts`](../../backend/src/modules/automations/automations.service.spec.ts) (11 testes unitários), [`backend/test/automations.e2e-spec.ts`](../../backend/test/automations.e2e-spec.ts) (13 cenários E2E) e [`frontend/e2e/app.spec.ts`](../../frontend/e2e/app.spec.ts) (fluxo completo editar + inativar + excluir).
+- **Testes Consolidados Após Alteração (181 testes aprovados — 0 falhas):**
+  - Backend Unit Tests: 8 suites, 56 testes passando (`5.388s`).
+  - Backend E2E Tests: 11 suites, 116 testes passando (`15.103s`).
+  - Frontend E2E (Playwright): 1 suite, 9 testes passando (`7.7s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`130` módulos frontend em `2.10s`) sem erros.
+

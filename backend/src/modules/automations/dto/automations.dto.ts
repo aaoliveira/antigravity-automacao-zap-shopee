@@ -176,8 +176,8 @@ export class UpdateAutomationDto {
 
 export class QueryAutomationsDto {
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsIn(['ACTIVE', 'PAUSED', 'INACTIVE', 'DELETED'])
+  status?: 'ACTIVE' | 'PAUSED' | 'INACTIVE' | 'DELETED';
 
   @IsOptional()
   @IsString()
