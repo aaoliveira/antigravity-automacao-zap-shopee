@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
@@ -239,10 +240,19 @@ export class AutomationsService {
   }
 
   /**
-   * Atualiza uma automação existente recalculando agendamento se necessário.
+   * Atualiza uma automação existente somente quando estiver pausada ou inativa (`PAUSED`),
+   * recalculando agendamento para retomada futura sem alterar o status atual.
    */
   async update(tenantId: string, id: string, dto: UpdateAutomationDto) {
     const existing = await this.findOne(tenantId, id);
+
+    // Regra de negócio: somente automações pausadas/inativas podem ser editadas
+    const editableStatuses: string[] = [AutomationStatus.PAUSED, 'INACTIVE'];
+    if (!editableStatuses.includes(existing.status)) {
+      throw new ConflictException(
+        'Somente automações pausadas ou inativas podem ser editadas. Pause a automação antes de editar.',
+      );
+    }
 
     // Valida recursos se alterados
     if (dto.instanceId) {
@@ -250,6 +260,12 @@ export class AutomationsService {
         where: { id: dto.instanceId, tenantId },
       });
       if (!inst) throw new BadRequestException('Instância WhatsApp não pertence a este tenant.');
+
+      if (dto.instanceId !== existing.instanceId && !dto.groupIds) {
+        throw new BadRequestException(
+          'Ao alterar a instância WhatsApp, informe também os grupos destinatários vinculados à nova instância.',
+        );
+      }
     }
 
     if (dto.shopeeCredentialId) {

@@ -579,4 +579,133 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
 
     await expect(page.locator('textarea')).toHaveValue(/\{link_grupo\}/);
   });
+
+  test('Edição de Automação: permite editar somente quando estiver pausada ou inativa', async ({ page }) => {
+    const instId = 'inst-edit-1';
+    const credId = 'cred-edit-1';
+    const automationsList = [
+      {
+        id: 'auto-active-1',
+        name: 'Automação Em Execução',
+        status: 'ACTIVE',
+        instanceId: instId,
+        shopeeCredentialId: credId,
+        dispatchStrategy: 'ALL_SEQUENTIAL',
+        frequencyMinutes: 60,
+        dailyExecutionLimit: 20,
+        jitterSeconds: 10,
+        windowStartTime: '08:00',
+        windowEndTime: '22:00',
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+        dedupWindowDays: 7,
+        nextExecutionAt: new Date(Date.now() + 3600000).toISOString(),
+        instance: { displayName: 'WhatsApp Principal' },
+        keywords: [{ id: 'k1', keyword: 'eletrônicos' }],
+        groups: [{ groupId: 'grp-1', group: { id: 'grp-1', name: 'Grupo 1' } }],
+      },
+      {
+        id: 'auto-paused-1',
+        name: 'Automação Pausada Original',
+        status: 'PAUSED',
+        instanceId: instId,
+        shopeeCredentialId: credId,
+        dispatchStrategy: 'ALL_SEQUENTIAL',
+        frequencyMinutes: 60,
+        dailyExecutionLimit: 20,
+        jitterSeconds: 10,
+        windowStartTime: '08:00',
+        windowEndTime: '22:00',
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+        dedupWindowDays: 7,
+        instance: { displayName: 'WhatsApp Principal' },
+        keywords: [{ id: 'k2', keyword: 'casa' }],
+        groups: [{ groupId: 'grp-1', group: { id: 'grp-1', name: 'Grupo 1' } }],
+      },
+    ];
+
+    await page.route('**/api/shopee-credentials', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: credId, label: 'Shopee Principal', appId: '100***01' }],
+        }),
+      });
+    });
+
+    await page.route('**/api/whatsapp-instances', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: instId, displayName: 'WhatsApp Principal', instanceName: 'zap-edit', status: 'CONNECTED' }],
+        }),
+      });
+    });
+
+    await page.route(`**/api/whatsapp-groups?instanceId=${instId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: 'grp-1', name: 'Grupo 1', jid: '111@g.us', participantCount: 15 }],
+        }),
+      });
+    });
+
+    await page.route('**/api/automations', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: automationsList }),
+      });
+    });
+
+    await page.route('**/api/automations/auto-paused-1', async (route) => {
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON();
+        automationsList[1].name = body.name;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: automationsList[1] }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 405 });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await page.goto('/automations');
+
+    // Card ativo deve manter o botão Editar desabilitado
+    const activeCard = page.locator('.divide-y > div', { hasText: 'Automação Em Execução' });
+    await expect(activeCard.locator('button:has-text("Editar")')).toBeDisabled();
+
+    // Card pausado deve permitir clicar em Editar
+    const pausedCard = page.locator('.divide-y > div', { hasText: 'Automação Pausada Original' });
+    const editBtn = pausedCard.locator('button:has-text("Editar")');
+    await expect(editBtn).toBeEnabled();
+    await editBtn.click();
+
+    // Modal abre em modo edição pré-preenchido
+    await expect(page.locator('h3:has-text("Editar Automação")')).toBeVisible();
+    const nameInput = page.locator('input[placeholder="Ex: Ofertas Achadinhos Casa & Cozinha"]');
+    await expect(nameInput).toHaveValue('Automação Pausada Original');
+
+    await nameInput.fill('Automação Pausada Editada');
+    await page.click('button:has-text("6. Revisão")');
+    await page.click('button:has-text("Salvar Alterações")');
+
+    await expect(page.locator('text=Automação atualizada com sucesso!')).toBeVisible();
+    await expect(page.locator('h5:has-text("Automação Pausada Editada")')).toBeVisible();
+  });
 });

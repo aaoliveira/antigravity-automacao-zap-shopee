@@ -113,7 +113,7 @@
 | `GET` | `/api/automations` | Lista automações do tenant com filtros de status | JWT | `200` |
 | `GET` | `/api/automations/:id` | Detalhes da automação (grupos, nichos, horários) | JWT | `200`, `404` |
 | `POST` | `/api/automations` | Cria nova automação com validação de propriedade | JWT | `201`, `400` |
-| `PUT` | `/api/automations/:id` | Atualiza parâmetros, agendamento ou destinos | JWT | `200`, `400`, `404` |
+| `PUT` | `/api/automations/:id` | Atualiza parâmetros, agendamento ou destinos (somente se pausada/inativa) | JWT | `200`, `400`, `404`, `409` |
 | `PATCH` | `/api/automations/:id/pause` | Pausa a automação (`PAUSED`) | JWT | `200`, `404` |
 | `PATCH` | `/api/automations/:id/resume`| Retoma a automação (`ACTIVE`) recalculando horários | JWT | `200`, `404` |
 | `POST` | `/api/automations/:id/execute-now` | Disparo manual imediato (enfileira job de alta prioridade)| JWT | `202`, `409`, `404` |

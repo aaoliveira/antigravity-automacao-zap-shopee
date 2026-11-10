@@ -311,6 +311,47 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
     expect(resResume.body.data.status).toBe('ACTIVE');
   });
 
+  it('Somente automações pausadas ou inativas podem ser editadas (409 quando ACTIVE, 200 quando PAUSED)', async () => {
+    // 1. Estando ACTIVE, edição deve ser bloqueada com 409 Conflict
+    const conflictRes = await request(app.getHttpServer())
+      .put(`/api/automations/${tenantA_automationId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({ name: 'Tentativa Edição Ativa' })
+      .expect(409);
+
+    expect(JSON.stringify(conflictRes.body)).toMatch(/pausadas ou inativas/i);
+
+    // 2. Pausa a automação para liberar edição
+    await request(app.getHttpServer())
+      .patch(`/api/automations/${tenantA_automationId}/pause`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    // 3. Estando PAUSED, edição deve ser aceita e manter status PAUSED
+    const updateRes = await request(app.getHttpServer())
+      .put(`/api/automations/${tenantA_automationId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({
+        name: 'Automação Eletrônicos & Casa VIP (Editada)',
+        frequencyMinutes: 90,
+        keywords: ['teclado mecânico', 'mouse gamer'],
+        groupIds: [tenantA_group1Id, tenantA_group2Id],
+      })
+      .expect(200);
+
+    expect(updateRes.body.success).toBe(true);
+    expect(updateRes.body.data.name).toBe('Automação Eletrônicos & Casa VIP (Editada)');
+    expect(updateRes.body.data.frequencyMinutes).toBe(90);
+    expect(updateRes.body.data.status).toBe('PAUSED');
+    expect(updateRes.body.data.keywords).toHaveLength(2);
+
+    // 4. Retoma automação para os cenários seguintes de execução
+    await request(app.getHttpServer())
+      .patch(`/api/automations/${tenantA_automationId}/resume`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+  });
+
   // ==========================================
   // 2. EXECUÇÃO MULTI-GRUPO E DESDUPLICAÇÃO
   // ==========================================

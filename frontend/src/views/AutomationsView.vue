@@ -64,7 +64,7 @@
                   :class="auto.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'"
                   class="px-2.5 py-0.5 rounded-full text-xs font-semibold"
                 >
-                  {{ auto.status === 'ACTIVE' ? 'Ativa' : 'Pausada' }}
+                  {{ formatAutomationStatusLabel(auto.status) }}
                 </span>
               </div>
 
@@ -126,6 +126,20 @@
                 {{ auto.status === 'ACTIVE' ? 'Pausar' : 'Retomar' }}
               </button>
 
+              <!-- Botão Editar (somente se pausada ou inativa) -->
+              <button
+                type="button"
+                @click="openEditWizardModal(auto)"
+                :disabled="!isAutomationEditable(auto)"
+                :title="isAutomationEditable(auto) ? 'Editar automação' : 'Pause ou inative a automação para editar'"
+                :class="isAutomationEditable(auto)
+                  ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'"
+                class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Editar
+              </button>
+
               <!-- Botão Histórico de Execuções -->
               <button
                 @click="openExecutionsModal(auto)"
@@ -157,26 +171,30 @@
           <!-- Cabeçalho do Wizard e Progresso -->
           <div class="border-b border-gray-100 pb-4">
             <div class="flex items-center justify-between mb-2">
-              <h3 class="text-lg font-bold text-gray-900">Configurar Nova Automação</h3>
-              <button @click="wizardOpen = false" class="text-gray-400 hover:text-gray-600">
+              <h3 class="text-lg font-bold text-gray-900">
+                {{ editingAutomationId ? 'Editar Automação' : 'Configurar Nova Automação' }}
+              </h3>
+              <button @click="closeWizardModal" class="text-gray-400 hover:text-gray-600">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
             <!-- Etapas -->
-            <div class="flex items-center space-x-2 text-xs font-medium">
-              <span :class="wizardStep >= 1 ? 'text-shopee-orange font-bold' : 'text-gray-400'">1. Informações</span>
-              <span class="text-gray-300">›</span>
-              <span :class="wizardStep >= 2 ? 'text-shopee-orange font-bold' : 'text-gray-400'">2. Instância</span>
-              <span class="text-gray-300">›</span>
-              <span :class="wizardStep >= 3 ? 'text-shopee-orange font-bold' : 'text-gray-400'">3. Grupos</span>
-              <span class="text-gray-300">›</span>
-              <span :class="wizardStep >= 4 ? 'text-shopee-orange font-bold' : 'text-gray-400'">4. Nichos</span>
-              <span class="text-gray-300">›</span>
-              <span :class="wizardStep >= 5 ? 'text-shopee-orange font-bold' : 'text-gray-400'">5. Agendamento</span>
-              <span class="text-gray-300">›</span>
-              <span :class="wizardStep >= 6 ? 'text-shopee-orange font-bold' : 'text-gray-400'">6. Revisão</span>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium">
+              <template v-for="(label, idx) in wizardStepLabels" :key="label">
+                <button
+                  type="button"
+                  @click="editingAutomationId && (wizardStep = idx + 1)"
+                  :class="[
+                    wizardStep >= idx + 1 ? 'text-shopee-orange font-bold' : 'text-gray-400',
+                    editingAutomationId ? 'cursor-pointer hover:underline' : 'cursor-default'
+                  ]"
+                >
+                  {{ idx + 1 }}. {{ label }}
+                </button>
+                <span v-if="idx < wizardStepLabels.length - 1" class="text-gray-300">›</span>
+              </template>
             </div>
           </div>
 
@@ -224,7 +242,7 @@
                   v-model="wizardData.instanceId"
                   :value="inst.id"
                   class="text-shopee-orange focus:ring-shopee-orange mr-3"
-                  @change="loadGroupsForInstance(inst.id)"
+                  @change="handleInstanceSelection(inst.id)"
                 />
                 <div class="flex-1">
                   <div class="flex items-center justify-between">
@@ -502,8 +520,12 @@
               @click="handleSaveAutomation"
               class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
             >
-              <span v-if="!isLoading">Ativar e Salvar Automação</span>
-              <span v-else>Gravando Automação...</span>
+              <span v-if="!isLoading">
+                {{ editingAutomationId ? 'Salvar Alterações' : 'Ativar e Salvar Automação' }}
+              </span>
+              <span v-else>
+                {{ editingAutomationId ? 'Salvando Alterações...' : 'Gravando Automação...' }}
+              </span>
             </button>
           </div>
         </div>
@@ -599,25 +621,47 @@ const feedbackIsError = ref(false);
 // Wizard Modal
 const wizardOpen = ref(false);
 const wizardStep = ref(1);
+const editingAutomationId = ref<string | null>(null);
+const lastSelectedInstanceId = ref('');
 const keywordInput = ref('');
+const wizardStepLabels = ['Informações', 'Instância', 'Grupos', 'Nichos', 'Agendamento', 'Revisão'];
 
-const wizardData = ref({
-  name: '',
-  instanceId: '',
-  shopeeCredentialId: '',
-  keywords: [] as string[],
-  groupIds: [] as string[],
-  dispatchStrategy: 'ALL_SEQUENTIAL' as 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE',
-  groupRedirectLinkId: '',
-  captionTemplate: '',
-  frequencyMinutes: 60,
-  dailyExecutionLimit: 20,
-  jitterSeconds: 10,
-  windowStartTime: '08:00',
-  windowEndTime: '22:00',
-  daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
-  dedupWindowDays: 7,
-});
+function createDefaultWizardData() {
+  return {
+    name: '',
+    instanceId: '',
+    shopeeCredentialId: '',
+    keywords: [] as string[],
+    groupIds: [] as string[],
+    dispatchStrategy: 'ALL_SEQUENTIAL' as 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE',
+    groupRedirectLinkId: '',
+    captionTemplate: '',
+    frequencyMinutes: 60,
+    dailyExecutionLimit: 20,
+    jitterSeconds: 10,
+    windowStartTime: '08:00',
+    windowEndTime: '22:00',
+    daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+    dedupWindowDays: 7,
+  };
+}
+
+const wizardData = ref(createDefaultWizardData());
+
+function isAutomationEditable(auto: any): boolean {
+  return auto?.status === 'PAUSED' || auto?.status === 'INACTIVE';
+}
+
+function formatAutomationStatusLabel(status: string): string {
+  switch (status) {
+    case 'ACTIVE':
+      return 'Ativa';
+    case 'INACTIVE':
+      return 'Inativa';
+    default:
+      return 'Pausada';
+  }
+}
 
 const selectedGroupLinkObj = computed(() =>
   groupLinks.value.find((lnk) => lnk.id === wizardData.value.groupRedirectLinkId) || null,
@@ -728,38 +772,80 @@ async function loadGroupsForInstance(instanceId: string) {
 // WIZARD
 // ==========================================
 function openWizardModal() {
+  editingAutomationId.value = null;
+  lastSelectedInstanceId.value = '';
+  availableGroups.value = [];
   wizardStep.value = 1;
-  wizardData.value = {
-    name: '',
-    instanceId: '',
-    shopeeCredentialId: '',
-    keywords: [],
-    groupIds: [],
-    dispatchStrategy: 'ALL_SEQUENTIAL',
-    groupRedirectLinkId: '',
-    captionTemplate: '',
-    frequencyMinutes: 60,
-    dailyExecutionLimit: 20,
-    jitterSeconds: 10,
-    windowStartTime: '08:00',
-    windowEndTime: '22:00',
-    daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
-    dedupWindowDays: 7,
-  };
+  wizardData.value = createDefaultWizardData();
   wizardOpen.value = true;
 }
 
-function advanceStep() {
-  if (wizardStep.value === 1) {
-    if (!wizardData.value.name.trim()) return showFeedback('Informe o nome da automação.', true);
-    if (!wizardData.value.shopeeCredentialId) return showFeedback('Selecione a credencial Shopee.', true);
-  } else if (wizardStep.value === 2) {
-    if (!wizardData.value.instanceId) return showFeedback('Selecione a instância WhatsApp.', true);
-  } else if (wizardStep.value === 3) {
-    if (wizardData.value.groupIds.length === 0) return showFeedback('Selecione ao menos 1 grupo destinatário.', true);
-  } else if (wizardStep.value === 4) {
-    if (wizardData.value.keywords.length === 0) return showFeedback('Adicione ao menos 1 nicho/palavra-chave.', true);
+async function openEditWizardModal(auto: any) {
+  if (!isAutomationEditable(auto)) {
+    showFeedback(
+      'Somente automações pausadas ou inativas podem ser editadas. Pause a automação antes de editar.',
+      true,
+    );
+    return;
   }
+
+  editingAutomationId.value = auto.id;
+  lastSelectedInstanceId.value = auto.instanceId || '';
+  wizardStep.value = 1;
+  wizardData.value = {
+    name: auto.name || '',
+    instanceId: auto.instanceId || '',
+    shopeeCredentialId: auto.shopeeCredentialId || '',
+    keywords: (auto.keywords || []).map((k: any) => k.keyword),
+    groupIds: (auto.groups || []).map((g: any) => g.groupId || g.group?.id).filter(Boolean),
+    dispatchStrategy: auto.dispatchStrategy || 'ALL_SEQUENTIAL',
+    groupRedirectLinkId: auto.groupRedirectLinkId || '',
+    captionTemplate: auto.captionTemplate || '',
+    frequencyMinutes: auto.frequencyMinutes ?? 60,
+    dailyExecutionLimit: auto.dailyExecutionLimit ?? 20,
+    jitterSeconds: auto.jitterSeconds ?? 10,
+    windowStartTime: auto.windowStartTime || '08:00',
+    windowEndTime: auto.windowEndTime || '22:00',
+    daysOfWeek: Array.isArray(auto.daysOfWeek) ? [...auto.daysOfWeek] : [1, 2, 3, 4, 5, 6, 7],
+    dedupWindowDays: auto.dedupWindowDays ?? 7,
+  };
+  wizardOpen.value = true;
+
+  if (auto.instanceId) {
+    await loadGroupsForInstance(auto.instanceId);
+  }
+}
+
+function closeWizardModal() {
+  wizardOpen.value = false;
+  editingAutomationId.value = null;
+}
+
+async function handleInstanceSelection(instanceId: string) {
+  if (lastSelectedInstanceId.value && lastSelectedInstanceId.value !== instanceId) {
+    wizardData.value.groupIds = [];
+  }
+  lastSelectedInstanceId.value = instanceId;
+  await loadGroupsForInstance(instanceId);
+}
+
+function validateStep(step: number): string | null {
+  if (step === 1) {
+    if (!wizardData.value.name.trim()) return 'Informe o nome da automação.';
+    if (!wizardData.value.shopeeCredentialId) return 'Selecione a credencial Shopee.';
+  } else if (step === 2) {
+    if (!wizardData.value.instanceId) return 'Selecione a instância WhatsApp.';
+  } else if (step === 3) {
+    if (wizardData.value.groupIds.length === 0) return 'Selecione ao menos 1 grupo destinatário.';
+  } else if (step === 4) {
+    if (wizardData.value.keywords.length === 0) return 'Adicione ao menos 1 nicho/palavra-chave.';
+  }
+  return null;
+}
+
+function advanceStep() {
+  const error = validateStep(wizardStep.value);
+  if (error) return showFeedback(error, true);
   wizardStep.value++;
 }
 
@@ -776,17 +862,33 @@ function removeKeyword(idx: number) {
 }
 
 async function handleSaveAutomation() {
+  for (let s = 1; s <= 4; s += 1) {
+    const stepErr = validateStep(s);
+    if (stepErr) {
+      wizardStep.value = s;
+      showFeedback(stepErr, true);
+      return;
+    }
+  }
+
   isLoading.value = true;
   feedbackMessage.value = '';
   try {
     const payload = {
       ...wizardData.value,
+      name: wizardData.value.name.trim(),
       groupRedirectLinkId: wizardData.value.groupRedirectLinkId || null,
       captionTemplate: wizardData.value.captionTemplate?.trim() || null,
     };
 
-    const res = await fetch('/api/automations', {
-      method: 'POST',
+    const isEditing = Boolean(editingAutomationId.value);
+    const url = isEditing
+      ? `/api/automations/${editingAutomationId.value}`
+      : '/api/automations';
+    const method = isEditing ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authStore.accessToken}`,
@@ -797,8 +899,12 @@ async function handleSaveAutomation() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || data.message);
 
-    showFeedback('Automação criada e agendada com sucesso!');
-    wizardOpen.value = false;
+    showFeedback(
+      isEditing
+        ? 'Automação atualizada com sucesso! Clique em Retomar quando desejar reativá-la.'
+        : 'Automação criada e agendada com sucesso!',
+    );
+    closeWizardModal();
     await loadAutomations();
   } catch (err: any) {
     showFeedback(err.message, true);

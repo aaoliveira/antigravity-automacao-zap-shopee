@@ -98,6 +98,7 @@ export class CreateAutomationDto {
 export class UpdateAutomationDto {
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   name?: string;
 
   @IsOptional()
@@ -110,11 +111,13 @@ export class UpdateAutomationDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
   @IsString({ each: true })
   keywords?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
   @IsUUID('4', { each: true })
   groupIds?: string[];
 

@@ -68,6 +68,7 @@ RN-PUB (Publicação, Jitter e Idempotência)
   1. Tentar sortear outro nicho/termo configurado na mesma automação (se houver).
   2. Caso todos os nichos estejam sem produtos inéditos, registrar a execução como `SKIPPED_NO_ELIGIBLE_PRODUCT` e concluir o ciclo sem erro e sem forçar repetição.
 - **RN-AUT-007 (Sem Viés de Primeira Posição):** A busca de produtos na Shopee não deve limitar a escolha apenas ao primeiro item da lista ou primeira página. O algoritmo deve sortear aleatoriamente o índice do produto entre o conjunto de candidatos elegíveis obtidos.
+- **RN-AUT-008 (Edição Restrita a Automações Pausadas ou Inativas):** Uma automação existente só pode ser editada quando estiver pausada ou inativa (`PAUSED`/`INACTIVE`). Automações com status `ACTIVE` ou `DELETED` devem rejeitar alterações retornando `HTTP 409 Conflict`, exigindo pausa explícita antes da edição.
 
 ---
 

@@ -200,3 +200,15 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 8 testes passando (`7.1s`) — inclui criação/troca de link permanente, página pública `/join/:slug` e Wizard com randomização/`{link_grupo}`.
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`130` módulos frontend em `2.29s`) sem erros.
 
+### 2026-11-10 — Edição de Automações Restrita a Estado Pausado ou Inativo
+- **Entregáveis:**
+  - [`backend/src/modules/automations/automations.service.ts`](../../backend/src/modules/automations/automations.service.ts) e [`dto/automations.dto.ts`](../../backend/src/modules/automations/dto/automations.dto.ts): Bloqueio com `ConflictException` (`HTTP 409`) ao tentar editar automações não pausadas/inativas (`ACTIVE` ou `DELETED`) em `update`, preservação do isolamento multi-tenant (`404` antes da checagem de status), guarda para exigência de `groupIds` ao trocar `instanceId`, e validação mínima (`@IsNotEmpty`, `@ArrayMinSize(1)`) no `UpdateAutomationDto`.
+  - [`frontend/src/views/AutomationsView.vue`](../../frontend/src/views/AutomationsView.vue): Botão `Editar` por automação (habilitado exclusivamente quando `PAUSED`/`INACTIVE` e desabilitado com tooltip explicativo quando `ACTIVE`), reabertura do Wizard em modo edição pré-carregando grupos, nichos, estratégia de randomização, `{link_grupo}` e agendamento via `PUT /api/automations/:id`.
+  - [`docs/product/BUSINESS_RULES.md`](../product/BUSINESS_RULES.md), [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md) e [`docs/quality/ACCEPTANCE_CRITERIA.md`](../quality/ACCEPTANCE_CRITERIA.md): Documentação de `RN-AUT-008`, retorno `409` no contrato `PUT /api/automations/:id` e atualização de `AC-RF09-02`.
+  - Testes adicionados: [`backend/src/modules/automations/automations.service.spec.ts`](../../backend/src/modules/automations/automations.service.spec.ts) (5 unitários), [`backend/test/automations.e2e-spec.ts`](../../backend/test/automations.e2e-spec.ts) (+1 E2E `409`/`200`) e [`frontend/e2e/app.spec.ts`](../../frontend/e2e/app.spec.ts) (+1 Playwright E2E).
+- **Testes Consolidados Após Alteração (174 testes aprovados — 0 falhas):**
+  - Backend Unit Tests: 8 suites, 50 testes passando (`7.766s`).
+  - Backend E2E Tests: 11 suites, 115 testes passando (`14.651s`).
+  - Frontend E2E (Playwright): 1 suite, 9 testes passando (`7.6s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`130` módulos frontend em `2.49s`) sem erros.
+
