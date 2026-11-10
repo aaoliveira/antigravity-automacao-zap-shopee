@@ -191,4 +191,65 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await expect(page.locator('text=Configurar Nova Automação')).toBeVisible();
     await expect(page.locator('text=Etapa 1: Dados da Automação e Credencial Shopee')).toBeVisible();
   });
+
+  test('WhatsApp & Evolution: exibe guia em formato de checklist para configurar instância e servidor', async ({ page }) => {
+    // Mock com 1 servidor já cadastrado para testar preenchimento em tempo real do formulário de instância
+    await page.route('**/api/evolution-servers', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [
+            {
+              id: 'srv-1',
+              name: 'Evolution Cloud',
+              baseUrl: 'https://evo.exemplo.com',
+              apiKeyMasked: '****1234',
+              _count: { instances: 0 },
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await page.goto('/whatsapp-instances');
+    await expect(page.locator('header h2')).toContainText('WhatsApp & Evolution API');
+
+    // Abre o guia em formato de checklist a partir da criação de instância
+    await page.click('button:has-text("Como configurar? (Checklist)")');
+    const checklist = page.locator('section[aria-label="Checklist de configuração da instância WhatsApp"]');
+    await expect(checklist).toBeVisible();
+    await expect(checklist).toContainText('Guia Passo a Passo: Como Configurar sua Instância WhatsApp');
+    await expect(checklist).toContainText('0 de 5 concluídas');
+    await expect(checklist).toContainText('1 servidor(es) ativo(s)');
+
+    // Marca itens do checklist e verifica atualização do progresso
+    await page.check('#chk-step-server');
+    await expect(checklist).toContainText('1 de 5 concluídas');
+    await expect(checklist).toContainText('20%');
+
+    // Preenche slug inválido e depois válido no formulário para testar feedback em tempo real no checklist
+    const slugInput = page.locator('input[placeholder="Ex: zap-promocoes-01"]');
+    await slugInput.fill('slug com espaco');
+    await expect(checklist).toContainText('Remova espaços ou caracteres especiais');
+
+    await slugInput.fill('zap-promocoes-01');
+    await expect(checklist).toContainText('Slug no formato válido');
+
+    // Navega para Servidores Evolution pelo atalho do checklist mantendo o guia visível
+    await checklist.locator('button:has-text("Ir para Servidores Evolution")').click();
+    await expect(page.locator('h3:has-text("Cadastrar Servidor Evolution API")')).toBeVisible();
+    await expect(checklist).toBeVisible();
+
+    // Fecha o checklist
+    await checklist.locator('button:has-text("Fechar guia")').click();
+    await expect(checklist).toBeHidden();
+  });
 });

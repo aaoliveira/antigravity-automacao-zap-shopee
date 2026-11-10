@@ -2,7 +2,7 @@
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation (MVP)  
 > **Metodologia:** Spec-Driven Development (SDD)  
-> **Última Atualização:** 2026-11-09  
+> **Última Atualização:** 2026-11-10  
 
 ---
 
@@ -144,3 +144,19 @@
 
 ## 3. Conclusão do Plano Mestre do MVP
 Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_WhatsApp_Antigravity.md` — Prompts 00 a 10) foram integralmente executados, validados e homologados. O MVP está tecnicamente concluído, auditado e pronto para implantação em produção.
+
+---
+
+## 4. Melhorias Incrementais Pós-MVP
+
+### 2026-11-10 — Guia em Checklist para Configuração de Instância WhatsApp
+- **Entregáveis:**
+  - [`frontend/src/components/whatsapp/WhatsAppSetupChecklist.vue`](../../frontend/src/components/whatsapp/WhatsAppSetupChecklist.vue): Guia interativo em formato de checklist (5 etapas com barra de progresso, persistência local em `localStorage`, atalhos entre abas e validação em tempo real de servidor, slug e nome de exibição).
+  - [`frontend/src/views/WhatsAppInstancesView.vue`](../../frontend/src/views/WhatsAppInstancesView.vue): Botão `Como configurar? (Checklist)` integrado na barra de navegação da tela WhatsApp & Evolution API.
+  - [`frontend/e2e/app.spec.ts`](../../frontend/e2e/app.spec.ts): Adicionado cenário Playwright validando abertura, marcação de progresso, feedback de slug e navegação entre abas.
+- **Testes Consolidados Após Alteração (137 testes aprovados — 0 falhas):**
+  - Backend Unit Tests: 5 suites, 29 testes passando (`3.56s`).
+  - Backend E2E Tests: 10 suites, 103 testes passando (`12.67s`).
+  - Frontend E2E (Playwright): 1 suite, 5 testes passando (`5.0s`).
+  - Frontend Build (`vue-tsc && vite build`): 124 módulos compilados (`1.62s`).
+

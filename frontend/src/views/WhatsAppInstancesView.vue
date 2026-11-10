@@ -5,9 +5,9 @@
     </template>
 
     <div class="max-w-6xl space-y-6">
-      <!-- Navegação por Abas -->
-      <div class="border-b border-gray-200">
-        <nav class="-mb-px flex space-x-8">
+      <!-- Navegação por Abas e Opção de Checklist -->
+      <div class="border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 sm:pb-0">
+        <nav class="-mb-px flex space-x-8 overflow-x-auto">
           <button
             @click="activeTab = 'instances'"
             :class="activeTab === 'instances' ? 'border-shopee-orange text-shopee-orange' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
@@ -41,6 +41,21 @@
             Servidores Evolution ({{ servers.length }})
           </button>
         </nav>
+
+        <button
+          type="button"
+          @click="showSetupChecklist = !showSetupChecklist"
+          :aria-expanded="showSetupChecklist"
+          class="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 self-start sm:self-center sm:mb-1"
+          :class="showSetupChecklist
+            ? 'bg-shopee-light text-shopee-orange border-orange-300'
+            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'"
+        >
+          <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          {{ showSetupChecklist ? 'Ocultar Checklist' : 'Como configurar? (Checklist)' }}
+        </button>
       </div>
 
       <!-- Feedback global de erro/sucesso -->
@@ -52,6 +67,21 @@
         <span>{{ feedbackMessage }}</span>
         <button @click="feedbackMessage = ''" class="text-xs font-semibold underline">Fechar</button>
       </div>
+
+      <!-- Guia em formato de Checklist para criar/configurar Instância e Servidor -->
+      <WhatsAppSetupChecklist
+        v-if="showSetupChecklist"
+        :has-servers="servers.length > 0"
+        :server-count="servers.length"
+        :has-instances="instances.length > 0"
+        :has-connected-instance="hasConnectedInstance"
+        :has-groups="groups.length > 0"
+        :active-tab="activeTab"
+        :draft-server="newServer"
+        :draft-instance="newInstance"
+        @close="showSetupChecklist = false"
+        @go-to-tab="activeTab = $event"
+      />
 
       <!-- ========================================== -->
       <!-- TAB 1: INSTÂNCIAS WHATSAPP                -->
@@ -427,11 +457,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import AppLayout from '../components/AppLayout.vue';
+import WhatsAppSetupChecklist from '../components/whatsapp/WhatsAppSetupChecklist.vue';
 import { useAuthStore } from '../stores/auth';
 
 const authStore = useAuthStore();
 
 const activeTab = ref<'instances' | 'groups' | 'servers'>('instances');
+const showSetupChecklist = ref(false);
 const isLoading = ref(false);
 const feedbackMessage = ref('');
 const feedbackIsError = ref(false);
@@ -440,6 +472,10 @@ const servers = ref<any[]>([]);
 const instances = ref<any[]>([]);
 const groups = ref<any[]>([]);
 const groupSearch = ref('');
+
+const hasConnectedInstance = computed(() =>
+  instances.value.some((inst) => inst.status === 'CONNECTED'),
+);
 
 // Novo Servidor
 const newServer = ref({
