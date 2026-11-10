@@ -174,3 +174,15 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 6 testes passando (`4.6s`).
   - Build (`backend` + `frontend`): compilação sem erros (`126` módulos frontend).
 
+### 2026-11-10 — Correção da Query `productOfferV2` e Diagnóstico Detalhado Shopee Open API
+- **Entregáveis:**
+  - [`backend/src/modules/shopee/shopee.client.ts`](../../backend/src/modules/shopee/shopee.client.ts): Removido `listType: 0` quando combinado com `keyword`/`sortType` (incompatível com o contrato oficial Shopee Brasil) e removido o campo depreciado (`toBeRemoved`) `price`, utilizando `priceMin`/`priceMax`. Adicionado retorno sanitizado de diagnóstico (`ShopeeValidationDiagnostics`) no método `testConnectivity`.
+  - [`backend/src/modules/shopee/shopee-credentials.service.ts`](../../backend/src/modules/shopee/shopee-credentials.service.ts) e [`frontend/src/views/ShopeeCredentialsView.vue`](../../frontend/src/views/ShopeeCredentialsView.vue): Exposição segura de `validationErrorCode` e `validationMessage` no cadastro e na revalidação, além de correção do feedback em `handleSave` para refletir `isValid` real.
+  - [`docs/architecture/SHOPEE_API_CONTRACTS.md`](../../docs/architecture/SHOPEE_API_CONTRACTS.md): Atualização para versão `1.1` com regras oficiais de `listType`, `priceMin`/`priceMax` e códigos de erro (`10000`–`11000`).
+  - [`backend/src/modules/shopee/shopee.signer.spec.ts`](../../backend/src/modules/shopee/shopee.signer.spec.ts), [`backend/src/modules/shopee/shopee.client.spec.ts`](../../backend/src/modules/shopee/shopee.client.spec.ts) e [`backend/test/shopee-credentials.e2e-spec.ts`](../../backend/test/shopee-credentials.e2e-spec.ts): Adicionado vetor oficial de assinatura Shopee Brasil (`dc88d72feea70c80c52c3399751a7d34966763f51a7f056aa070a5e9df645412`) e testes de contrato/diagnóstico.
+- **Testes Consolidados Após Alteração (146 testes aprovados — 0 falhas):**
+  - Backend Unit Tests: 5 suites, 33 testes passando (`3.88s`).
+  - Backend E2E Tests: 10 suites, 107 testes passando (`12.57s`).
+  - Frontend E2E (Playwright): 1 suite, 6 testes passando (`4.4s`).
+  - Build (`backend` + `frontend`): compilação sem erros (`126` módulos frontend).
+

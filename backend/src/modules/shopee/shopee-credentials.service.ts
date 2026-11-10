@@ -7,7 +7,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
-import { ShopeeClientService, ProductSearchResult } from './shopee.client';
+import {
+  ShopeeClientService,
+  ProductSearchResult,
+  ShopeeValidationDiagnostics,
+} from './shopee.client';
 import {
   CreateShopeeCredentialDto,
   UpdateShopeeCredentialDto,
@@ -46,7 +50,12 @@ export class ShopeeCredentialsService {
     const appSecretMasked = this.cryptoVault.maskSecret(dto.appSecret.trim(), 4);
 
     // Valida conectividade real com a API da Shopee antes de marcar como válida
-    const isValid = await this.shopeeClient.testConnectivity(dto.appId.trim(), dto.appSecret.trim());
+    const diagnostics: ShopeeValidationDiagnostics = {};
+    const isValid = await this.shopeeClient.testConnectivity(
+      dto.appId.trim(),
+      dto.appSecret.trim(),
+      diagnostics,
+    );
 
     const credential = await this.prisma.shopeeCredential.create({
       data: {
@@ -71,7 +80,11 @@ export class ShopeeCredentialsService {
     });
 
     this.logger.log(`Credencial Shopee criada [${credential.id}] para tenant [${tenantId}] - Válida: ${isValid}`);
-    return credential;
+    return {
+      ...credential,
+      validationErrorCode: !isValid ? diagnostics.code || null : null,
+      validationMessage: !isValid ? diagnostics.message || null : null,
+    };
   }
 
   /**
@@ -135,15 +148,20 @@ export class ShopeeCredentialsService {
     let appSecretMasked = credential.appSecretMasked;
     let isValid = credential.isValid;
     let lastValidatedAt = credential.lastValidatedAt;
+    const diagnostics: ShopeeValidationDiagnostics = {};
 
     if (dto.appSecret) {
       appSecretEncrypted = this.cryptoVault.encrypt(dto.appSecret.trim());
       appSecretMasked = this.cryptoVault.maskSecret(dto.appSecret.trim(), 4);
-      isValid = await this.shopeeClient.testConnectivity(credential.appId, dto.appSecret.trim());
+      isValid = await this.shopeeClient.testConnectivity(
+        credential.appId,
+        dto.appSecret.trim(),
+        diagnostics,
+      );
       lastValidatedAt = isValid ? new Date() : null;
     }
 
-    return this.prisma.shopeeCredential.update({
+    const updated = await this.prisma.shopeeCredential.update({
       where: { id },
       data: {
         label: dto.label ? dto.label.trim() : credential.label,
@@ -162,6 +180,12 @@ export class ShopeeCredentialsService {
         updatedAt: true,
       },
     });
+
+    return {
+      ...updated,
+      validationErrorCode: !isValid && dto.appSecret ? diagnostics.code || null : null,
+      validationMessage: !isValid && dto.appSecret ? diagnostics.message || null : null,
+    };
   }
 
   /**
@@ -202,7 +226,12 @@ export class ShopeeCredentialsService {
     }
 
     const secret = this.cryptoVault.decrypt(credential.appSecretEncrypted);
-    const isValid = await this.shopeeClient.testConnectivity(credential.appId, secret);
+    const diagnostics: ShopeeValidationDiagnostics = {};
+    const isValid = await this.shopeeClient.testConnectivity(
+      credential.appId,
+      secret,
+      diagnostics,
+    );
 
     const updated = await this.prisma.shopeeCredential.update({
       where: { id },
@@ -217,7 +246,11 @@ export class ShopeeCredentialsService {
       },
     });
 
-    return updated;
+    return {
+      ...updated,
+      validationErrorCode: !isValid ? diagnostics.code || null : null,
+      validationMessage: !isValid ? diagnostics.message || null : null,
+    };
   }
 
   /**

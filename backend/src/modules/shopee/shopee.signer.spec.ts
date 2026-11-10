@@ -41,6 +41,20 @@ describe('ShopeeSignerService (Assinatura HMAC/SHA-256 Oficial)', () => {
     expect(res1.signature).not.toEqual(res2.signature);
   });
 
+  it('deve reproduzir exatamente o vetor oficial publicado na documentação da Shopee Brasil', () => {
+    const payload = {
+      query: '{\nbrandOffer{\n    nodes{\n        commissionRate\n        offerName\n    }\n}\n}',
+    };
+    const result = signer.generateAuthorization('123456', 'demo', payload, 1577836800);
+
+    expect(result.signature).toBe(
+      'dc88d72feea70c80c52c3399751a7d34966763f51a7f056aa070a5e9df645412',
+    );
+    expect(result.authorizationHeader).toBe(
+      'SHA256 Credential=123456,Timestamp=1577836800,Signature=dc88d72feea70c80c52c3399751a7d34966763f51a7f056aa070a5e9df645412',
+    );
+  });
+
   it('deve rejeitar appId ou secret vazios', () => {
     expect(() => signer.generateAuthorization('', 'secret', {})).toThrow();
     expect(() => signer.generateAuthorization('appId', '', {})).toThrow();

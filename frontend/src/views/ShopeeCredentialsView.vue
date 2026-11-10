@@ -8,9 +8,17 @@
       <!-- Formulário de Nova Credencial -->
       <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <h3 class="text-base font-semibold text-gray-900 mb-1">Conectar Credencial Shopee Open API</h3>
-        <p class="text-sm text-gray-500 mb-5">
-          Insira seu App ID e App Secret obtidos no portal oficial de desenvolvedores de afiliados da Shopee. Seu Secret será cifrado em repouso com algoritmo AES-256-GCM.
+        <p class="text-sm text-gray-500 mb-4">
+          Insira seu App ID e App Secret obtidos no portal oficial de afiliados da Shopee Brasil (<code class="bg-gray-100 px-1 rounded text-xs">affiliate.shopee.com.br/open_api</code>). Seu Secret será cifrado em repouso com algoritmo AES-256-GCM.
         </p>
+
+        <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-1">
+          <p><strong>Requisitos para validação na Shopee:</strong></p>
+          <ul class="list-disc list-inside space-y-0.5">
+            <li>Utilize o <strong>AppID</strong> e <strong>Secret</strong> do <strong>Portal de Afiliados Brasil</strong> (credenciais de Lojas/Vendedores do <em>open.shopee.com</em> não funcionam na Open API de Afiliados).</li>
+            <li>Sua conta de afiliado precisa estar aprovada para a Open API e com a chave em status <strong>Valid</strong> (não congelada/resetada).</li>
+          </ul>
+        </div>
 
         <div v-if="feedbackMessage" :class="feedbackIsError ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'" class="mb-4 p-4 rounded-lg border text-sm">
           {{ feedbackMessage }}
@@ -183,13 +191,21 @@ const handleSave = async () => {
   isLoading.value = true;
   feedbackMessage.value = '';
   try {
-    await api.post('/shopee-credentials', {
+    const res = await api.post('/shopee-credentials', {
       label: label.value,
       appId: appId.value,
       appSecret: appSecret.value,
     });
-    feedbackMessage.value = 'Credencial cadastrada e validada com sucesso na Shopee!';
-    feedbackIsError.value = false;
+    const saved = res.data.data;
+    if (saved.isValid) {
+      feedbackMessage.value = 'Credencial cadastrada e validada com sucesso na Shopee!';
+      feedbackIsError.value = false;
+    } else {
+      feedbackMessage.value =
+        saved.validationMessage ||
+        'Credencial salva, porém a Shopee rejeitou o teste de conexão.';
+      feedbackIsError.value = true;
+    }
     label.value = '';
     appId.value = '';
     appSecret.value = '';
@@ -206,13 +222,15 @@ const handleRevalidate = async (id: string) => {
   revalidatingId.value = id;
   try {
     const res = await api.post(`/shopee-credentials/${id}/test`);
-    feedbackMessage.value = res.data.data.isValid
+    const result = res.data.data;
+    feedbackMessage.value = result.isValid
       ? 'Conexão com a Shopee revalidada com sucesso!'
-      : 'A Shopee rejeitou a credencial no teste.';
-    feedbackIsError.value = !res.data.data.isValid;
+      : result.validationMessage || 'A Shopee rejeitou a credencial no teste.';
+    feedbackIsError.value = !result.isValid;
     await fetchCredentials();
   } catch (err: any) {
-    feedbackMessage.value = 'Falha ao testar credencial.';
+    feedbackMessage.value =
+      err.response?.data?.error?.message || 'Falha ao testar credencial.';
     feedbackIsError.value = true;
   } finally {
     revalidatingId.value = null;

@@ -168,6 +168,29 @@ describe('Shopee Credentials e2e & Multi-Tenant Isolation Tests', () => {
     expect(res.body.data.label).toBe('Credencial Atualizada');
   });
 
+  it('Tenant A deve receber diagnóstico detalhado quando Shopee rejeitar credencial no teste (200)', async () => {
+    const spy = jest.spyOn(shopeeClient, 'testConnectivity').mockImplementationOnce(
+      async (_appId, _secret, diagnostics) => {
+        if (diagnostics) {
+          diagnostics.code = '10020';
+          diagnostics.message = 'Erro Shopee [10020] (Assinatura/Identidade inválida).';
+        }
+        return false;
+      },
+    );
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/shopee-credentials/${tenantA_credentialId}/test`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.isValid).toBe(false);
+    expect(res.body.data.validationErrorCode).toBe('10020');
+    expect(res.body.data.validationMessage).toContain('10020');
+    expect(spy).toHaveBeenCalled();
+  });
+
   it('Tenant A deve excluir a credencial (200)', async () => {
     const res = await request(app.getHttpServer())
       .delete(`/api/shopee-credentials/${tenantA_credentialId}`)

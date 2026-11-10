@@ -1,9 +1,9 @@
 # Contratos Oficiais da Shopee Affiliate Open API (SHOPEE_API_CONTRACTS)
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
-> **Versão do Documento:** 1.0  
+> **Versão do Documento:** 1.1  
 > **Status:** Verificado e Homologado  
-> **Data de Verificação:** 2026-11-09  
+> **Data de Verificação:** 2026-11-10  
 > **Fonte Oficial:** [Shopee Open API Portal](https://affiliate.shopee.com.br/open_api/home) e [Documentação Short Link](https://affiliate.shopee.com.br/open_api/list?type=short_link)
 
 ---
@@ -91,7 +91,6 @@ mutation GenerateShortLink($input: ShortLinkInput!) {
 query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) {
   productOfferV2(
     keyword: $keyword
-    listType: 0
     sortType: $sortType
     page: $page
     limit: $limit
@@ -104,7 +103,6 @@ query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) {
       imageUrl
       priceMin
       priceMax
-      price
       commissionRate
       commission
       sales
@@ -119,23 +117,27 @@ query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) {
 }
 ```
 
+> ⚠️ **Restrição Oficial de Contrato (`affiliate.shopee.com.br/open_api`):**
+> - **`listType`:** Conforme documentação oficial da Shopee, *"listType can only be used as a query parameter with matchId, can not be used as a query parameter with the rest of the input"* (e `listType: 0` não permite ordenação `sortType`). Portanto, **nunca enviar `listType` junto com `keyword` ou `sortType`**.
+> - **`price` depreciado (`toBeRemoved`):** O campo `price` encontra-se marcado para remoção na documentação oficial; utilizar `priceMin` e `priceMax`.
+
 ### 4.2 Parâmetros de Entrada
 | Parâmetro | Tipo | Obrigatório | Descrição |
 | :--- | :--- | :---: | :--- |
 | `keyword` | `String` | Não | Palavra-chave de busca ou nicho (ex: "cozinha", "fone bluetooth", "maquiagem"). |
-| `listType` | `Int` | Não | Tipo de listagem (0: Todas as ofertas, 1: Top produtos). Padrão recomendado: `0`. |
-| `sortType` | `Int` | Não | Critério de ordenação (1: Relevância, 2: Vendas, 3: Preço desc, 4: Preço asc, 5: Comissão). Padrão: `1` ou `2`. |
+| `listType` | `Int` | Não | Exclusivo para listas sem `keyword`/`sortType` ou com `matchId` (0: Recomendados). |
+| `sortType` | `Int` | Não | Critério de ordenação (1: Relevância por keyword, 2: Vendas, 3: Preço desc, 4: Preço asc, 5: Comissão). |
 | `page` | `Int` | Não | Número da página (1-indexed). |
 | `limit` | `Int` | Não | Quantidade de itens por página (ex: 10, 20, 50). Recomendado: `20`. |
 
 ### 4.3 Campos de Retorno do Produto (`nodes`)
-- **`itemId`** (`String` ou `Int`): Identificador único do produto no marketplace da Shopee.
+- **`itemId`** (`String` ou `Int64`): Identificador único do produto no marketplace da Shopee.
 - **`productName`** (`String`): Título descritivo do produto.
 - **`productLink`** (`String`): URL direta original do produto.
 - **`offerLink`** (`String`): Link da oferta pré-gerado.
 - **`imageUrl`** (`String`): URL da imagem principal do produto no CDN da Shopee.
-- **`priceMin` / `priceMax` / `price`** (`Float` ou `String`): Valores praticados no anúncio.
-- **`commissionRate`** (`Float`): Percentual de comissão estimada.
+- **`priceMin` / `priceMax`** (`String`): Preço mínimo e máximo praticados no anúncio (moeda local).
+- **`commissionRate`** (`String`): Percentual de comissão estimada.
 
 ### 4.4 Exemplo de Resposta de Sucesso
 ```json
@@ -176,12 +178,16 @@ query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) {
 
 ## 6. Tratamento de Erros e Limitações Conhecidas
 
-### Códigos de Erro Mapeados
-| Código HTTP / GraphQL | Erro | Causa Típica | Ação do Sistema |
+### Códigos de Erro Mapeados (Oficiais Shopee Affiliate Open API)
+| Código HTTP / GraphQL | Erro (`extensions.code`) | Causa Típica | Ação do Sistema |
 | :---: | :--- | :--- | :--- |
-| `200` com `errors` | `Invalid Signature` | Incompatibilidade entre payload serializado e a assinatura SHA-256 gerada. | Abortar, logar erro de autenticação e verificar normalização do JSON. |
-| `200` com `errors` | `AppId not found` | Credencial inválida ou desabilitada no portal Shopee. | Marcar credencial como `INVALID` no tenant e notificar usuário. |
-| `429` | `Too Many Requests` | Limite de taxa excedido na API da Shopee. | Aplicar backoff exponencial e postergar próximo disparo. |
+| `200` com `errors` | `10000` (`System error`) | Erro interno do servidor da Shopee. | Registrar erro sanitizado e tentar novamente na próxima janela. |
+| `200` com `errors` | `10010` (`Request parsing error`) | Sintaxe GraphQL inválida, campo inexistente ou combinação incompatível de parâmetros (ex: `listType` com `keyword`). | Abortar, logar diagnóstico e corrigir parâmetros da query. |
+| `200` com `errors` | `10020` (`Identity authentication error`) | Assinatura incorreta, `Timestamp` fora da janela de 10 minutos, ou `AppId`/`Secret` inválidos/de outro portal. | Marcar credencial como inválida e exibir mensagem orientativa ao usuário. |
+| `200` com `errors` | `10030` (`Trigger traffic limiting`) | Limite de requisições excedido (`2000 req/hora`). | Aplicar backoff exponencial e postergar próximo disparo. |
+| `200` com `errors` | `10035` (`No Open API Access`) | Conta/AppId autenticado, mas sem liberação ativa na plataforma Affiliate Open API. | Marcar credencial como inválida e orientar solicitação de acesso em `affiliate.shopee.com.br/open_api`. |
+| `200` com `errors` | `11000` (`Business processing error`) | Erro de regra de negócio (ex: URL inválida em `generateShortLink`). | Registrar falha sanitizada no histórico sem expor segredos. |
+| `429` | `Too Many Requests` | Rate limit HTTP atingido. | Aplicar backoff exponencial e postergar próximo disparo. |
 ---
 
 ## 7. Rate Limits, Quotas e Boas Práticas

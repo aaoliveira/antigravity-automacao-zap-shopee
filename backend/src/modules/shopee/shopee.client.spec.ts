@@ -1,13 +1,23 @@
-import { ShopeeClientService, NormalizedProduct } from './shopee.client';
+import {
+  ShopeeClientService,
+  NormalizedProduct,
+  ShopeeValidationDiagnostics,
+} from './shopee.client';
 import { ShopeeSignerService } from './shopee.signer';
 
 describe('ShopeeClientService (Lógica de Domínio e Normalização)', () => {
   let client: ShopeeClientService;
   let signer: ShopeeSignerService;
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
     signer = new ShopeeSignerService();
     client = new ShopeeClientService(signer);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
   });
 
   describe('selectRandomEligibleProduct (Desduplicação e Aleatoriedade)', () => {
@@ -64,6 +74,70 @@ describe('ShopeeClientService (Lógica de Domínio e Normalização)', () => {
       expect(counts.item_1).toBeGreaterThan(40);
       expect(counts.item_2).toBeGreaterThan(40);
       expect(counts.item_3).toBeGreaterThan(40);
+    });
+  });
+
+  describe('searchProducts e testConnectivity (Contrato Oficial GraphQL)', () => {
+    it('não deve enviar listType junto com keyword/sortType e não deve solicitar campo depreciado price', async () => {
+      let capturedBody = '';
+      global.fetch = jest.fn(async (_url: any, init: any) => {
+        capturedBody = String(init?.body || '');
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              productOfferV2: {
+                nodes: [
+                  {
+                    itemId: '18492019481',
+                    productName: 'Garrafa Térmica Inox',
+                    productLink: 'https://shopee.com.br/garrafa-i.1.2',
+                    offerLink: 'https://shope.ee/abc',
+                    imageUrl: 'https://down-br.img.susercontent.com/file/img.jpg',
+                    priceMin: '29.90',
+                    priceMax: '39.90',
+                    commissionRate: '0.08',
+                  },
+                ],
+                pageInfo: { page: 1, limit: 1, hasNextPage: false },
+              },
+            },
+          }),
+        } as any;
+      });
+
+      const diagnostics: ShopeeValidationDiagnostics = {};
+      const ok = await client.testConnectivity('109999', 'my_secret', diagnostics);
+
+      expect(ok).toBe(true);
+      expect(diagnostics.message).toBeUndefined();
+      expect(capturedBody).not.toContain('listType');
+      expect(capturedBody).toContain('priceMin');
+      expect(capturedBody).toContain('priceMax');
+      expect(capturedBody).not.toMatch(/\bprice\b/);
+    });
+
+    it('deve capturar código e diagnóstico sanitizado quando Shopee retornar erro (10035 / 10020)', async () => {
+      const secret = 'super_secret_non_hex_value';
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          errors: [
+            {
+              message: `error [10035]: You currently do not have access (${secret})`,
+              extensions: { code: 10035 },
+            },
+          ],
+        }),
+      })) as any;
+
+      const diagnostics: ShopeeValidationDiagnostics = {};
+      const ok = await client.testConnectivity('109999', secret, diagnostics);
+
+      expect(ok).toBe(false);
+      expect(diagnostics.code).toBe('10035');
+      expect(diagnostics.message).toContain('10035');
+      expect(diagnostics.message).not.toContain(secret);
     });
   });
 });

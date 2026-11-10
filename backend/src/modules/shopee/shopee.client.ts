@@ -21,6 +21,12 @@ export interface ProductSearchResult {
   };
 }
 
+export interface ShopeeValidationDiagnostics {
+  code?: string;
+  message?: string;
+  rawError?: string;
+}
+
 @Injectable()
 export class ShopeeClientService {
   private readonly logger = new Logger(ShopeeClientService.name);
@@ -59,9 +65,9 @@ export class ShopeeClientService {
     const responseData = await this.executeGraphQL(appId, secret, mutation);
 
     if (responseData.errors && responseData.errors.length > 0) {
-      const errorMsg = responseData.errors[0].message || 'Erro desconhecido na API Shopee';
-      this.logger.error(`Falha ao gerar Short Link: ${this.sanitizeError(errorMsg)}`);
-      throw new BadRequestException(`Erro da Shopee: ${this.sanitizeError(errorMsg)}`);
+      const errorMsg = this.extractGraphQLError(responseData.errors[0], 'Erro desconhecido na API Shopee');
+      this.logger.error(`Falha ao gerar Short Link: ${this.sanitizeError(errorMsg, secret)}`);
+      throw new BadRequestException(`Erro da Shopee: ${this.sanitizeError(errorMsg, secret)}`);
     }
 
     const shortLink = responseData?.data?.generateShortLink?.shortLink;
@@ -74,6 +80,8 @@ export class ShopeeClientService {
 
   /**
    * Consulta ofertas de produtos na Shopee usando a query oficial productOfferV2.
+   * Nota contratual Shopee: listType NÃO pode ser combinado com keyword/sortType.
+   * Além disso, `price` está marcado como toBeRemoved na documentação oficial; usar priceMin/priceMax.
    */
   async searchProducts(
     appId: string,
@@ -88,48 +96,34 @@ export class ShopeeClientService {
     const page = params.page || 1;
     const limit = Math.min(params.limit || 20, 50);
     const sortType = params.sortType || 1;
+    const trimmedKeyword = (params.keyword || '').trim();
 
-    const query = {
-      query: `query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) {
-        productOfferV2(
-          keyword: $keyword
-          listType: 0
-          sortType: $sortType
-          page: $page
-          limit: $limit
-        ) {
-          nodes {
-            itemId
-            productName
-            productLink
-            offerLink
-            imageUrl
-            price
-            priceMin
-            priceMax
-            commissionRate
-          }
-          pageInfo {
-            page
-            limit
-            hasNextPage
-          }
+    const query = trimmedKeyword
+      ? {
+          query:
+            'query FetchProducts($keyword: String, $page: Int, $limit: Int, $sortType: Int) { productOfferV2(keyword: $keyword, sortType: $sortType, page: $page, limit: $limit) { nodes { itemId productName productLink offerLink imageUrl priceMin priceMax commissionRate } pageInfo { page limit hasNextPage } } }',
+          variables: {
+            keyword: trimmedKeyword,
+            page,
+            limit,
+            sortType,
+          },
         }
-      }`,
-      variables: {
-        keyword: params.keyword,
-        page,
-        limit,
-        sortType,
-      },
-    };
+      : {
+          query:
+            'query FetchDefaultProducts($page: Int, $limit: Int) { productOfferV2(listType: 0, page: $page, limit: $limit) { nodes { itemId productName productLink offerLink imageUrl priceMin priceMax commissionRate } pageInfo { page limit hasNextPage } } }',
+          variables: {
+            page,
+            limit,
+          },
+        };
 
     const responseData = await this.executeGraphQL(appId, secret, query);
 
     if (responseData.errors && responseData.errors.length > 0) {
-      const errorMsg = responseData.errors[0].message || 'Erro desconhecido na busca de produtos';
-      this.logger.error(`Falha ao buscar produtos: ${this.sanitizeError(errorMsg)}`);
-      throw new BadRequestException(`Erro da Shopee: ${this.sanitizeError(errorMsg)}`);
+      const errorMsg = this.extractGraphQLError(responseData.errors[0], 'Erro desconhecido na busca de produtos');
+      this.logger.error(`Falha ao buscar produtos: ${this.sanitizeError(errorMsg, secret)}`);
+      throw new BadRequestException(`Erro da Shopee: ${this.sanitizeError(errorMsg, secret)}`);
     }
 
     const offerData = responseData?.data?.productOfferV2;
@@ -138,7 +132,7 @@ export class ShopeeClientService {
     // Normalização e validação de qualidade dos dados retornados
     const products: NormalizedProduct[] = [];
     for (const node of rawNodes) {
-      const rawPrice = node.price || node.priceMin || 0;
+      const rawPrice = node.priceMin || node.priceMax || node.price || 0;
       const parsedPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : Number(rawPrice);
 
       // Validação obrigatória: produto deve ter título, preço positivo, imagem e link
@@ -192,18 +186,33 @@ export class ShopeeClientService {
 
   /**
    * Teste de conectividade e validação da credencial contra o endpoint da Shopee.
+   * Preenche `diagnostics` com código e orientação sanitizada caso ocorra falha.
    */
-  async testConnectivity(appId: string, secret: string): Promise<boolean> {
+  async testConnectivity(
+    appId: string,
+    secret: string,
+    diagnostics?: ShopeeValidationDiagnostics,
+  ): Promise<boolean> {
     try {
-      // Dispara busca leve com limit 1 para validar assinatura e appId
+      // Dispara busca leve com keyword + sortType=1 (sem listType) para validar assinatura e permissão Open API
       await this.searchProducts(appId, secret, {
-        keyword: 'teste',
+        keyword: 'shopee',
+        sortType: 1,
         page: 1,
         limit: 1,
       });
       return true;
-    } catch (error) {
-      this.logger.warn(`Falha na validação de credencial Shopee: ${this.sanitizeError(error.message)}`);
+    } catch (error: any) {
+      const sanitized = this.sanitizeError(error?.message || 'Erro desconhecido na API Shopee', secret);
+      const formatted = this.formatValidationFailure(sanitized);
+
+      if (diagnostics) {
+        diagnostics.code = formatted.code;
+        diagnostics.message = formatted.userMessage;
+        diagnostics.rawError = sanitized;
+      }
+
+      this.logger.warn(`Falha na validação de credencial Shopee: ${sanitized}`);
       return false;
     }
   }
@@ -242,7 +251,7 @@ export class ShopeeClientService {
       }
 
       return await response.json();
-    } catch (error) {
+    } catch (error: any) {
       clearTimeout(timeout);
       if (error.name === 'AbortError') {
         throw new InternalServerErrorException('Timeout ao comunicar com a API da Shopee.');
@@ -251,7 +260,56 @@ export class ShopeeClientService {
     }
   }
 
-  private sanitizeError(msg: string): string {
-    return msg.replace(/[a-f0-9]{32,64}/gi, '[REDACTED_HASH]');
+  private extractGraphQLError(errObj: any, fallback: string): string {
+    const extCode = errObj?.extensions?.code;
+    const rawMsg = errObj?.message || errObj?.extensions?.message || fallback;
+    if (extCode !== undefined && !String(rawMsg).includes(String(extCode))) {
+      return `error [${extCode}]: ${rawMsg}`;
+    }
+    return String(rawMsg);
+  }
+
+  private formatValidationFailure(sanitizedError: string): { code?: string; userMessage: string } {
+    const match = sanitizedError.match(/error\s*\[(\d+)\]/i);
+    const code = match ? match[1] : undefined;
+
+    switch (code) {
+      case '10020':
+        return {
+          code,
+          userMessage:
+            'Erro Shopee [10020] (Assinatura/Identidade inválida): confirme se o App ID e App Secret foram gerados em affiliate.shopee.com.br/open_api (Portal de Afiliados Brasil, não Open Platform de lojas) e sem alteração após Reset.',
+        };
+      case '10035':
+        return {
+          code,
+          userMessage:
+            'Erro Shopee [10035] (Acesso não liberado): o App ID foi reconhecido, mas sua conta ainda não possui aprovação ativa na Shopee Affiliate Open API. Verifique seu status no menu Open API do portal da Shopee.',
+        };
+      case '10010':
+        return {
+          code,
+          userMessage: `Erro Shopee [10010] (Parsing GraphQL): ${sanitizedError}`,
+        };
+      case '10030':
+        return {
+          code,
+          userMessage:
+            'Erro Shopee [10030] (Rate Limit): limite de chamadas à Shopee atingido. Aguarde alguns instantes e tente novamente.',
+        };
+      default:
+        return {
+          code,
+          userMessage: `A Shopee rejeitou a validação: ${sanitizedError}`,
+        };
+    }
+  }
+
+  private sanitizeError(msg: string, secret?: string): string {
+    let cleaned = String(msg || '');
+    if (secret) {
+      cleaned = cleaned.split(secret).join('[REDACTED_SECRET]');
+    }
+    return cleaned.replace(/[a-f0-9]{32,64}/gi, '[REDACTED_HASH]');
   }
 }
