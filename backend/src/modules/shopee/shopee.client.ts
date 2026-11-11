@@ -62,7 +62,11 @@ export class ShopeeClientService {
       },
     };
 
-    const responseData = await this.executeGraphQL(appId, secret, mutation);
+    const responseData = await this.executeGraphQLWithTransientRetry(
+      appId,
+      secret,
+      mutation,
+    );
 
     if (responseData.errors && responseData.errors.length > 0) {
       const errorMsg = this.extractGraphQLError(responseData.errors[0], 'Erro desconhecido na API Shopee');
@@ -118,7 +122,11 @@ export class ShopeeClientService {
           },
         };
 
-    const responseData = await this.executeGraphQL(appId, secret, query);
+    const responseData = await this.executeGraphQLWithTransientRetry(
+      appId,
+      secret,
+      query,
+    );
 
     if (responseData.errors && responseData.errors.length > 0) {
       const errorMsg = this.extractGraphQLError(responseData.errors[0], 'Erro desconhecido na busca de produtos');
@@ -215,6 +223,32 @@ export class ShopeeClientService {
       this.logger.warn(`Falha na validação de credencial Shopee: ${sanitized}`);
       return false;
     }
+  }
+
+  private async executeGraphQLWithTransientRetry(
+    appId: string,
+    secret: string,
+    bodyPayload: Record<string, any>,
+  ): Promise<any> {
+    const backoffDelaysMs = [500, 1200];
+    let responseData = await this.executeGraphQL(appId, secret, bodyPayload);
+
+    for (const delayMs of backoffDelaysMs) {
+      if (!responseData?.errors?.length) {
+        return responseData;
+      }
+      const errMsg = this.extractGraphQLError(responseData.errors[0], '');
+      if (!/error\s*\[10000\]/i.test(errMsg)) {
+        return responseData;
+      }
+      this.logger.warn(
+        `Shopee retornou erro transitório [10000]; aguardando ${delayMs}ms para nova tentativa...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      responseData = await this.executeGraphQL(appId, secret, bodyPayload);
+    }
+
+    return responseData;
   }
 
   /**

@@ -508,6 +508,9 @@
           <!-- ETAPA 5: AGENDAMENTO E LIMITES -->
           <div v-if="wizardStep === 5" class="space-y-4">
             <h4 class="font-semibold text-gray-800 text-sm">Etapa 5: Agendamento, Janela e Confiabilidade</h4>
+            <div class="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+              Ao criar dentro da janela e dos dias permitidos, o <strong>1º envio automático inicia em segundos</strong> e os seguintes repetem conforme o intervalo abaixo.
+            </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

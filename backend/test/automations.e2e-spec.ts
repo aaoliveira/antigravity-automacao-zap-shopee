@@ -6,6 +6,7 @@ import { PrismaService } from '../src/modules/database/prisma.service';
 import { ShopeeClientService } from '../src/modules/shopee/shopee.client';
 import { EvolutionClient } from '../src/modules/evolution/evolution.client';
 import { AutomationsExecutorService } from '../src/modules/automations/automations-executor.service';
+import { AutomationsSchedulerService } from '../src/modules/automations/automations-scheduler.service';
 import { InstanceStatus, ExecutionStatus, PublicationStatus } from '@prisma/client';
 
 describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
@@ -15,6 +16,7 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
   let shopeeClient: ShopeeClientService;
   let evolutionClient: EvolutionClient;
   let executorService: AutomationsExecutorService;
+  let schedulerService: AutomationsSchedulerService;
 
   let tenantA_token = '';
   let tenantA_id = '';
@@ -51,6 +53,7 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
     shopeeClient = app.get(ShopeeClientService);
     evolutionClient = app.get(EvolutionClient);
     executorService = app.get(AutomationsExecutorService);
+    schedulerService = app.get(AutomationsSchedulerService);
 
     // Mocks externos controlados
     jest.spyOn(shopeeClient, 'testConnectivity').mockResolvedValue(true);
@@ -545,6 +548,104 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
 
     expect(res.body.success).toBe(true);
     expect(res.body.data.jobId).toBeDefined();
+  });
+
+  it('Agendador automático e ressincronização: criar nova automação agenda disparo inicial, despacha vencidas sem duplicidade, ressincroniza instância CONNECTING e grava FAILED em erro Shopee', async () => {
+    // 0. Cria nova automação dentro da janela ativa (00:00 - 23:59 todos os dias)
+    const createScheduledRes = await request(app.getHttpServer())
+      .post('/api/automations')
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({
+        name: 'Automação Agendamento Automático E2E',
+        instanceId: tenantA_instanceId,
+        shopeeCredentialId: tenantA_shopeeCredId,
+        keywords: ['smartwatch', 'fone'],
+        groupIds: [tenantA_group1Id],
+        frequencyMinutes: 30,
+        windowStartTime: '00:00',
+        windowEndTime: '23:59',
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+      })
+      .expect(201);
+
+    const scheduledAutoId = createScheduledRes.body.data.id;
+    const initialNext = new Date(createScheduledRes.body.data.nextExecutionAt);
+    expect(initialNext.getTime()).toBeLessThanOrEqual(Date.now() + 15_000);
+
+    // 1. Garante que erro na busca Shopee grava histórico FAILED em vez de sumir no worker
+    jest
+      .spyOn(shopeeClient, 'searchProducts')
+      .mockRejectedValue(new Error('Erro da Shopee: error [10000]: System Error'));
+
+    const failExec = await executorService.execute(
+      scheduledAutoId,
+      tenantA_id,
+      false,
+    );
+    expect(failExec.success).toBe(false);
+    expect(failExec.status).toBe(ExecutionStatus.FAILED);
+    expect(failExec.executionId).toBeDefined();
+
+    const failRecord = await prisma.automationExecution.findUnique({
+      where: { id: failExec.executionId },
+    });
+    expect(failRecord?.status).toBe(ExecutionStatus.FAILED);
+    expect(failRecord?.errorMessage).toContain('error [10000]');
+
+    // 2. Instância marcada como CONNECTING no banco ressincroniza ao vivo se Evolution responder 'open'
+    await prisma.whatsAppInstance.update({
+      where: { id: tenantA_instanceId },
+      data: { status: InstanceStatus.CONNECTING },
+    });
+    jest.spyOn(evolutionClient, 'getConnectionState').mockResolvedValueOnce({
+      instance: { instanceName: 'zap-auto-a', state: 'open' },
+    } as any);
+    jest.spyOn(shopeeClient, 'searchProducts').mockResolvedValue({
+      products: [
+        {
+          itemId: `PROD_AUTO_LIVE_${Date.now()}`,
+          title: 'Smartwatch AMOLED A Prova Dagua',
+          productUrl: 'https://shopee.com.br/product/123/999',
+          imageUrl: 'https://down-br.img.susercontent.com/file/watch.jpg',
+          price: 199.9,
+        },
+      ],
+      pageInfo: { page: 1, limit: 20, hasNextPage: false },
+    });
+    jest
+      .spyOn(shopeeClient, 'generateShortLink')
+      .mockResolvedValue('https://shope.ee/liveSync99');
+
+    const syncExec = await executorService.execute(
+      scheduledAutoId,
+      tenantA_id,
+      true,
+    );
+    expect(syncExec.success).toBe(true);
+    expect(syncExec.status).toBe(ExecutionStatus.SUCCESS);
+
+    const refreshedInst = await prisma.whatsAppInstance.findUnique({
+      where: { id: tenantA_instanceId },
+    });
+    expect(refreshedInst?.status).toBe(InstanceStatus.CONNECTED);
+
+    // 3. Varredura agendada despacha automação com nextExecutionAt vencido e evita re-enfileiramento no ciclo seguinte
+    await prisma.automation.update({
+      where: { id: scheduledAutoId },
+      data: {
+        status: 'ACTIVE',
+        nextExecutionAt: new Date(Date.now() - 30_000),
+      },
+    });
+
+    const dispatched = await schedulerService.checkAndDispatchDueAutomations();
+    expect(dispatched).toBeGreaterThanOrEqual(1);
+
+    const afterSweep = await prisma.automation.findUnique({
+      where: { id: scheduledAutoId },
+    });
+    expect(afterSweep?.nextExecutionAt).toBeTruthy();
+    expect(afterSweep!.nextExecutionAt!.getTime()).toBeGreaterThan(Date.now());
   });
 
   // ==========================================

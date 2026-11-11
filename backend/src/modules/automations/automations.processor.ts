@@ -19,7 +19,10 @@ export class AutomationsProcessor implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const redisClient = this.queueService.getRedisClient();
+    const redisClient =
+      typeof this.queueService.getWorkerRedisClient === 'function'
+        ? this.queueService.getWorkerRedisClient()
+        : this.queueService.getRedisClient();
 
     this.worker = new Worker(
       'automations-execution-queue',

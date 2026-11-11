@@ -266,3 +266,16 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 11 testes passando (`10.0s`).
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.21s`) sem erros.
 
+### 2026-11-11 — Correção do Agendador Automático de Automações, Isolamento BullMQ/Redis e Resiliência Shopee
+- **Diagnóstico & Correções:**
+  - [`backend/src/modules/automations/automations-scheduler.service.ts`](../../backend/src/modules/automations/automations-scheduler.service.ts): Ativado ciclo periódico em `OnModuleInit` / `OnModuleDestroy` (varredura inicial em 3s e ticker a cada 15s, desabilitado apenas em `NODE_ENV=test`), lock distribuído `lock:scheduler:sweep` + claim atômico `updateMany` antes do `enqueueAutomationJob`, suporte real a `timezone` do tenant (`Intl.DateTimeFormat`) e `calculateInitialExecution` agendando o 1º envio em ~5s quando criada/reativada dentro da janela horária ativa.
+  - [`backend/src/modules/queue/queue.service.ts`](../../backend/src/modules/queue/queue.service.ts) e [`backend/src/modules/automations/automations.processor.ts`](../../backend/src/modules/automations/automations.processor.ts): Separadas conexões `ioredis` dedicadas para `Queue`/locks vs `Worker` (`getWorkerRedisClient()`) evitando bloqueio de `BZPOPMIN` em comandos compartilhados.
+  - [`backend/src/modules/automations/automations.service.ts`](../../backend/src/modules/automations/automations.service.ts) e [`backend/src/modules/automations/automations-executor.service.ts`](../../backend/src/modules/automations/automations-executor.service.ts): `await` garantido em todas as chamadas a `updateNextExecution`, cálculo de `dailyExecutionLimit` e verificação de janela no fuso do tenant, ressincronização ao vivo de instância `WhatsAppInstance` via Evolution API (`getConnectionState`) quando marcada como `CONNECTING`/`CREATED`, fallback entre todas as palavras-chave configuradas e gravação obrigatória de `AutomationExecution` com status `FAILED` em caso de falha da API externa.
+  - [`backend/src/modules/shopee/shopee.client.ts`](../../backend/src/modules/shopee/shopee.client.ts): Retry automático com backoff (`500ms`, `1200ms`) para erro transitório `error [10000]` na busca e geração de Short Link.
+- **Testes Consolidados Após Alteração (223 testes aprovados — 0 falhas):**
+  - Extensão Chrome (`node --test`): 4 testes passando (`71.60ms`).
+  - Backend Unit Tests: 11 suites, 83 testes passando (`7.911s`).
+  - Backend E2E Tests: 13 suites, 125 testes passando (`17.125s`).
+  - Frontend E2E (Playwright): 1 suite, 11 testes passando (`9.7s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.24s`) sem erros.
+

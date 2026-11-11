@@ -217,9 +217,17 @@ describe('Reliability, Resilience & Fault Tolerance Tests', () => {
         new Error('error [10035]: You currently do not have access to the Shopee Affiliate Open API Platform.'),
       );
 
-      await expect(
-        executorService.execute(automationId, tenantId, true),
-      ).rejects.toThrow(/Shopee/i);
+      const execRes = await executorService.execute(automationId, tenantId, true);
+      expect(execRes.success).toBe(false);
+      expect(execRes.status).toBe(ExecutionStatus.FAILED);
+      expect(execRes.message).toMatch(/Shopee/i);
+      expect(execRes.executionId).toBeDefined();
+
+      const failedRow = await prisma.automationExecution.findUnique({
+        where: { id: execRes.executionId },
+      });
+      expect(failedRow?.status).toBe(ExecutionStatus.FAILED);
+      expect(failedRow?.errorMessage).toMatch(/10035/);
 
       // Restaura implementação original
       jest.restoreAllMocks();

@@ -10,6 +10,7 @@ import { QueueService } from '../queue/queue.service';
 import { ShopeeClientService } from '../shopee/shopee.client';
 import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { WhatsAppGroupsService } from '../evolution/whatsapp-groups.service';
+import { EvolutionClient } from '../evolution/evolution.client';
 import { AutomationsSchedulerService } from './automations-scheduler.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { MercadoLivreService } from '../mercadolivre/mercadolivre.service';
@@ -36,6 +37,7 @@ export class AutomationsExecutorService {
     private readonly schedulerService: AutomationsSchedulerService,
     @Optional() private readonly couponsService?: CouponsService,
     @Optional() private readonly mercadoLivreService?: MercadoLivreService,
+    @Optional() private readonly evolutionClient?: EvolutionClient,
   ) {}
 
   /**
@@ -68,6 +70,7 @@ export class AutomationsExecutorService {
       const automation = await this.prisma.automation.findFirst({
         where: { id: automationId, tenantId },
         include: {
+          tenant: { select: { timezone: true } },
           instance: { include: { server: true } },
           shopeeCredential: true,
           mercadoLivreAccount: true,
@@ -103,9 +106,38 @@ export class AutomationsExecutorService {
         };
       }
 
-      // 3. Validação de Limite Diário
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
+      const tenantTimezone = automation.tenant?.timezone || 'America/Sao_Paulo';
+
+      // Em disparos agendados, verifica se ainda está dentro da janela configurada
+      if (
+        !isManual &&
+        typeof (this.schedulerService as any).isWithinScheduleWindow === 'function'
+      ) {
+        const insideWindow = (this.schedulerService as any).isWithinScheduleWindow(
+          {
+            frequencyMinutes: automation.frequencyMinutes,
+            windowStartTime: automation.windowStartTime,
+            windowEndTime: automation.windowEndTime,
+            daysOfWeek: automation.daysOfWeek,
+            timezone: tenantTimezone,
+          },
+          new Date(),
+        );
+        if (!insideWindow) {
+          this.logger.log(
+            `Automação ${automationId} fora da janela horária (${automation.windowStartTime}-${automation.windowEndTime} ${tenantTimezone}). Reagendando sem envio.`,
+          );
+          await this.updateNextExecution(automation);
+          return {
+            success: false,
+            message: 'Fora da janela horária configurada.',
+            status: ExecutionStatus.FAILED,
+          };
+        }
+      }
+
+      // 3. Validação de Limite Diário (meia-noite no fuso horário do tenant)
+      const startOfDay = this.getStartOfDayInZone(tenantTimezone);
 
       const executionsToday = await this.prisma.automationExecution.count({
         where: {
@@ -119,6 +151,7 @@ export class AutomationsExecutorService {
         this.logger.warn(
           `Automação ${automationId} atingiu o limite diário de ${automation.dailyExecutionLimit} execuções.`,
         );
+        await this.updateNextExecution(automation);
         return {
           success: false,
           message: 'Limite diário de execuções atingido.',
@@ -126,30 +159,60 @@ export class AutomationsExecutorService {
         };
       }
 
-      // 4. Validação da Instância WhatsApp (Não publicar se offline)
+      // 4. Validação da Instância WhatsApp (com ressincronização ao vivo antes de abortar)
       if (automation.instance.status !== InstanceStatus.CONNECTED) {
-        this.logger.warn(
-          `Instância WhatsApp ${automation.instance.displayName} offline (Status: ${automation.instance.status}). Abortando execução.`,
-        );
+        let liveConnected = false;
 
-        const execution = await this.prisma.automationExecution.create({
-          data: {
-            tenantId,
-            automationId,
+        if (this.evolutionClient && automation.instance.server) {
+          try {
+            const apiKey = this.cryptoVault.decrypt(
+              automation.instance.server.apiKeyEncrypted,
+            );
+            const stateData = await this.evolutionClient.getConnectionState(
+              automation.instance.server.baseUrl,
+              apiKey,
+              automation.instance.instanceName,
+            );
+            if (stateData?.instance?.state === 'open') {
+              await this.prisma.whatsAppInstance.update({
+                where: { id: automation.instance.id },
+                data: {
+                  status: InstanceStatus.CONNECTED,
+                  lastConnectedAt: new Date(),
+                },
+              });
+              automation.instance.status = InstanceStatus.CONNECTED;
+              liveConnected = true;
+            }
+          } catch {
+            liveConnected = false;
+          }
+        }
+
+        if (!liveConnected) {
+          this.logger.warn(
+            `Instância WhatsApp ${automation.instance.displayName} offline (Status: ${automation.instance.status}). Abortando execução.`,
+          );
+
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: ExecutionStatus.SKIPPED_INSTANCE_OFFLINE,
+              errorMessage: `Instância WhatsApp '${automation.instance.displayName}' não está conectada (Status atual: ${automation.instance.status}).`,
+              completedAt: new Date(),
+            },
+          });
+
+          await this.updateNextExecution(automation);
+
+          return {
+            success: false,
+            executionId: execution.id,
+            message: 'Instância WhatsApp offline.',
             status: ExecutionStatus.SKIPPED_INSTANCE_OFFLINE,
-            errorMessage: `Instância WhatsApp '${automation.instance.displayName}' não está conectada (Status atual: ${automation.instance.status}).`,
-            completedAt: new Date(),
-          },
-        });
-
-        this.updateNextExecution(automation);
-
-        return {
-          success: false,
-          executionId: execution.id,
-          message: 'Instância WhatsApp offline.',
-          status: ExecutionStatus.SKIPPED_INSTANCE_OFFLINE,
-        };
+          };
+        }
       }
 
       // 5. Seleção Imparcial de Nicho / Categoria (Palavras-chave DEC-001)
@@ -157,8 +220,10 @@ export class AutomationsExecutorService {
         throw new BadRequestException('Automação não possui palavras-chave/nichos cadastrados.');
       }
 
-      const randomKeywordIndex = Math.floor(Math.random() * automation.keywords.length);
-      const selectedKeyword = automation.keywords[randomKeywordIndex].keyword;
+      const shuffledKeywords = this.shuffleArray(
+        automation.keywords.map((k) => k.keyword),
+      );
+      let selectedKeyword = shuffledKeywords[0];
 
       // 6. Desduplicação de Produtos (Janela configurável, padrão 7 dias)
       const dedupCutoff = new Date(
@@ -201,7 +266,7 @@ export class AutomationsExecutorService {
               completedAt: new Date(),
             },
           });
-          this.updateNextExecution(automation);
+          await this.updateNextExecution(automation);
           return {
             success: false,
             executionId: execution.id,
@@ -248,7 +313,7 @@ export class AutomationsExecutorService {
               completedAt: new Date(),
             },
           });
-          this.updateNextExecution(automation);
+          await this.updateNextExecution(automation);
           return {
             success: false,
             executionId: execution.id,
@@ -268,7 +333,7 @@ export class AutomationsExecutorService {
               completedAt: new Date(),
             },
           });
-          this.updateNextExecution(automation);
+          await this.updateNextExecution(automation);
           return {
             success: false,
             executionId: execution.id,
@@ -282,26 +347,63 @@ export class AutomationsExecutorService {
           automation.shopeeCredential.appSecretEncrypted,
         );
 
-        // Consulta ofertas na Shopee Affiliate Open API
-        const searchResult = await this.shopeeClient.searchProducts(
-          automation.shopeeCredential.appId,
-          shopeeSecret,
-          {
-            keyword: selectedKeyword,
-            page: 1,
-            limit: 20,
-          },
-        );
-        const candidates = searchResult.products || [];
+        // Consulta ofertas na Shopee Affiliate Open API com fallback entre palavras-chave configuradas
+        let eligibleProducts: any[] = [];
+        let lastSearchError: Error | null = null;
 
-        // Filtra produtos que já foram divulgados na janela de desduplicação
-        const eligibleProducts = candidates.filter(
-          (p) => !excludedItemIds.includes(p.itemId),
-        );
+        for (const kw of shuffledKeywords) {
+          try {
+            const searchResult = await this.shopeeClient.searchProducts(
+              automation.shopeeCredential.appId,
+              shopeeSecret,
+              {
+                keyword: kw,
+                page: 1,
+                limit: 20,
+              },
+            );
+            const candidates = searchResult.products || [];
+            const filtered = candidates.filter(
+              (p) => !excludedItemIds.includes(p.itemId),
+            );
+            if (filtered.length > 0) {
+              selectedKeyword = kw;
+              eligibleProducts = filtered;
+              break;
+            }
+          } catch (searchErr: any) {
+            lastSearchError = searchErr;
+            this.logger.warn(
+              `Erro na busca Shopee para nicho '${kw}' (automação ${automationId}): ${searchErr.message}`,
+            );
+          }
+        }
+
+        if (eligibleProducts.length === 0 && lastSearchError) {
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: ExecutionStatus.FAILED,
+              selectedKeyword,
+              errorMessage: `Falha ao consultar produtos na Shopee: ${lastSearchError.message}`,
+              completedAt: new Date(),
+            },
+          });
+
+          await this.updateNextExecution(automation);
+
+          return {
+            success: false,
+            executionId: execution.id,
+            message: `Falha ao consultar produtos na Shopee: ${lastSearchError.message}`,
+            status: ExecutionStatus.FAILED,
+          };
+        }
 
         if (eligibleProducts.length === 0) {
           this.logger.warn(
-            `Nenhum produto elegível encontrado para a palavra-chave '${selectedKeyword}' após exclusão de ${excludedItemIds.length} produtos recentes.`,
+            `Nenhum produto elegível encontrado para os nichos configurados após exclusão de ${excludedItemIds.length} produtos recentes.`,
           );
 
           const execution = await this.prisma.automationExecution.create({
@@ -315,7 +417,7 @@ export class AutomationsExecutorService {
             },
           });
 
-          this.updateNextExecution(automation);
+          await this.updateNextExecution(automation);
 
           return {
             success: false,
@@ -351,7 +453,7 @@ export class AutomationsExecutorService {
             },
           });
 
-          this.updateNextExecution(automation);
+          await this.updateNextExecution(automation);
 
           return {
             success: false,
@@ -538,7 +640,7 @@ export class AutomationsExecutorService {
         await this.mercadoLivreService.markOfferPublished(selectedMlOfferId);
       }
 
-      this.updateNextExecution(automation);
+      await this.updateNextExecution(automation);
 
       return {
         success: finalStatus !== ExecutionStatus.FAILED,
@@ -563,6 +665,7 @@ export class AutomationsExecutorService {
           windowStartTime: automation.windowStartTime,
           windowEndTime: automation.windowEndTime,
           daysOfWeek: automation.daysOfWeek,
+          timezone: automation.tenant?.timezone || 'America/Sao_Paulo',
         },
         new Date(),
       );
@@ -579,6 +682,41 @@ export class AutomationsExecutorService {
         `Erro ao atualizar nextExecutionAt da automação ${automation.id}: ${err.message}`,
       );
     }
+  }
+
+  private getStartOfDayInZone(timeZone: string): Date {
+    const now = new Date();
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      });
+      const parts = formatter.formatToParts(now);
+      const map: Record<string, string> = {};
+      for (const p of parts) map[p.type] = p.value;
+      const elapsedMs =
+        ((Number.parseInt(map.hour || '0', 10) % 24) * 3600 +
+          Number.parseInt(map.minute || '0', 10) * 60 +
+          Number.parseInt(map.second || '0', 10)) *
+        1000;
+      return new Date(now.getTime() - elapsedMs);
+    } catch {
+      const fallback = new Date(now);
+      fallback.setHours(0, 0, 0, 0);
+      return fallback;
+    }
+  }
+
+  private shuffleArray<T>(items: T[]): T[] {
+    const arr = [...items];
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
   }
 
   /**

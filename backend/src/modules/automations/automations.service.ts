@@ -235,16 +235,25 @@ export class AutomationsService {
       await this.validateCoupon(tenantId, dto.couponId, targetPlatform);
     }
 
-    // 4. Calcula o próximo horário de execução agendado
-    const nextExecutionAt = this.schedulerService.calculateNextExecution(
-      {
-        frequencyMinutes: dto.frequencyMinutes ?? 60,
-        windowStartTime: dto.windowStartTime ?? '08:00',
-        windowEndTime: dto.windowEndTime ?? '22:00',
-        daysOfWeek: dto.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7],
-      },
-      new Date(),
+    const timezone = await this.getTenantTimezone(tenantId);
+    const scheduleConfig = {
+      frequencyMinutes: dto.frequencyMinutes ?? 60,
+      windowStartTime: dto.windowStartTime ?? '08:00',
+      windowEndTime: dto.windowEndTime ?? '22:00',
+      daysOfWeek: dto.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7],
+      timezone,
+    };
+
+    // 4. Calcula o próximo horário de execução agendado (imediato em +5s se dentro da janela ativa)
+    const now = new Date();
+    const calculatedNext = this.schedulerService.calculateNextExecution(
+      scheduleConfig,
+      now,
     );
+    const nextExecutionAt =
+      typeof (this.schedulerService as any).calculateInitialExecution === 'function'
+        ? (this.schedulerService as any).calculateInitialExecution(scheduleConfig, now)
+        : calculatedNext;
 
     // 5. Cria a automação e associa palavras-chave e grupos
     const automation = await this.prisma.automation.create({
@@ -379,12 +388,14 @@ export class AutomationsService {
     const windowEndTime = dto.windowEndTime ?? existing.windowEndTime;
     const daysOfWeek = dto.daysOfWeek ?? existing.daysOfWeek;
 
+    const timezone = await this.getTenantTimezone(tenantId);
     const nextExecutionAt = this.schedulerService.calculateNextExecution(
       {
         frequencyMinutes,
         windowStartTime,
         windowEndTime,
         daysOfWeek,
+        timezone,
       },
       new Date(),
     );
@@ -507,15 +518,23 @@ export class AutomationsService {
       throw new ConflictException('Automação excluída não pode ser reativada.');
     }
 
-    const nextExecutionAt = this.schedulerService.calculateNextExecution(
-      {
-        frequencyMinutes: existing.frequencyMinutes,
-        windowStartTime: existing.windowStartTime,
-        windowEndTime: existing.windowEndTime,
-        daysOfWeek: existing.daysOfWeek,
-      },
-      new Date(),
+    const timezone = await this.getTenantTimezone(tenantId);
+    const resumeConfig = {
+      frequencyMinutes: existing.frequencyMinutes,
+      windowStartTime: existing.windowStartTime,
+      windowEndTime: existing.windowEndTime,
+      daysOfWeek: existing.daysOfWeek,
+      timezone,
+    };
+    const now = new Date();
+    const fallbackNext = this.schedulerService.calculateNextExecution(
+      resumeConfig,
+      now,
     );
+    const nextExecutionAt =
+      typeof (this.schedulerService as any).calculateInitialExecution === 'function'
+        ? (this.schedulerService as any).calculateInitialExecution(resumeConfig, now)
+        : fallbackNext;
 
     const updated = await this.prisma.automation.update({
       where: { id },
@@ -597,6 +616,21 @@ export class AutomationsService {
         },
       },
     });
+  }
+
+  private async getTenantTimezone(tenantId: string): Promise<string> {
+    if (typeof this.prisma.tenant?.findUnique !== 'function') {
+      return 'America/Sao_Paulo';
+    }
+    try {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      return tenant?.timezone || 'America/Sao_Paulo';
+    } catch {
+      return 'America/Sao_Paulo';
+    }
   }
 
   private async validateGroupRedirectLink(tenantId: string, linkId: string) {
