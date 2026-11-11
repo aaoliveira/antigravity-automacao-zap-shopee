@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../database/prisma.service';
@@ -12,6 +13,10 @@ import { EvolutionSsrfValidator } from '../evolution/evolution-ssrf.validator';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { FEATURE_FLAG_KEYS } from '../feature-flags/feature-flags.constants';
 import { MercadoLivreClient } from './mercadolivre.client';
+import {
+  buildExtensionDownloadZip,
+  getExtensionMetadata,
+} from './extension-zip.util';
 import {
   isAllowedAffiliateShortUrl,
   isAllowedMercadoLivreUrl,
@@ -22,7 +27,9 @@ import {
 import {
   CreateMlOfferDto,
   ExchangeMlCodeDto,
+  ExtensionGatewayDto,
   ExtensionSyncDto,
+  ExtensionTestConversionDto,
   SaveMlOAuthCredentialsDto,
   SaveMlPrototypeConfigDto,
   SearchMlProductsDto,
@@ -31,11 +38,11 @@ import {
 } from './dto/mercadolivre.dto';
 
 interface SignedTokenPayload {
-  kind: 'oauth_state' | 'pairing';
+  kind: 'oauth_state' | 'pairing' | 'extension_key';
   tenantId: string;
   accountId: string;
   nonce: string;
-  exp: number;
+  exp?: number;
 }
 
 @Injectable()
@@ -68,7 +75,20 @@ export class MercadoLivreService {
       accounts: serializedAccounts,
       defaultAccount: serializedAccounts[0] ?? null,
       activeOffersCount: offersCount,
+      extensionPackage: getExtensionMetadata(),
     };
+  }
+
+  getExtensionPackageInfo() {
+    return getExtensionMetadata();
+  }
+
+  async getExtensionDownloadPackage(tenantId: string) {
+    await this.featureFlags.assertEnabled(
+      tenantId,
+      FEATURE_FLAG_KEYS.ML_ALTERNATIVE_B_ENABLED,
+    );
+    return buildExtensionDownloadZip();
   }
 
   // =========================================================================
@@ -250,8 +270,89 @@ export class MercadoLivreService {
     };
   }
 
-  async syncFromExtension(dto: ExtensionSyncDto) {
-    const payload = this.verifySignedToken(dto.pairingToken, 'pairing');
+  async generateExtensionToken(
+    tenantId: string,
+    userId: string | undefined,
+    accountId?: string,
+  ) {
+    await this.featureFlags.assertEnabled(
+      tenantId,
+      FEATURE_FLAG_KEYS.ML_ALTERNATIVE_B_ENABLED,
+    );
+
+    let account = await this.resolveTargetAccount(tenantId, accountId);
+    if (!account) {
+      account = await this.prisma.mercadoLivreAccount.create({
+        data: {
+          tenantId,
+          label: 'Conta Mercado Livre',
+          isActive: true,
+        },
+      });
+    }
+
+    const extensionToken = this.signToken({
+      kind: 'extension_key',
+      tenantId,
+      accountId: account.id,
+      nonce: crypto.randomBytes(16).toString('hex'),
+    });
+
+    await this.prisma.mercadoLivreAccount.update({
+      where: { id: account.id },
+      data: {
+        extensionTokenEncrypted: this.vault.encrypt(extensionToken),
+      },
+    });
+
+    await this.recordAudit(tenantId, userId, 'ML_EXTENSION_TOKEN_GENERATED', account.id);
+
+    return {
+      accountId: account.id,
+      extensionToken,
+      maskedToken: this.vault.maskSecret(extensionToken, 6),
+    };
+  }
+
+  async revokeExtensionToken(
+    tenantId: string,
+    userId: string | undefined,
+    accountId?: string,
+  ) {
+    await this.featureFlags.assertEnabled(
+      tenantId,
+      FEATURE_FLAG_KEYS.ML_ALTERNATIVE_B_ENABLED,
+    );
+
+    const account = await this.resolveTargetAccount(tenantId, accountId);
+    if (!account) {
+      return { success: true, message: 'Nenhuma conta ativa encontrada.' };
+    }
+
+    await this.prisma.mercadoLivreAccount.update({
+      where: { id: account.id },
+      data: { extensionTokenEncrypted: null },
+    });
+
+    await this.recordAudit(tenantId, userId, 'ML_EXTENSION_TOKEN_REVOKED', account.id);
+
+    return {
+      success: true,
+      message: 'Token da extensão revogado com segurança.',
+    };
+  }
+
+  private async resolveAuthenticatedExtensionAccount(rawToken?: string) {
+    if (!rawToken || !rawToken.trim()) {
+      throw new UnauthorizedException(
+        'Token da extensão ausente. Gere o token no painel do ShopeeZap.',
+      );
+    }
+
+    const payload = this.verifySignedToken(rawToken.trim(), [
+      'pairing',
+      'extension_key',
+    ]);
 
     await this.featureFlags.assertEnabled(
       payload.tenantId,
@@ -271,6 +372,92 @@ export class MercadoLivreService {
         'Conta Mercado Livre de pareamento não encontrada para esta organização.',
       );
     }
+
+    if (payload.kind === 'extension_key') {
+      if (!account.extensionTokenEncrypted) {
+        throw new UnauthorizedException(
+          'Este token da extensão foi revogado. Gere um novo no painel.',
+        );
+      }
+      const decrypted = this.vault.decrypt(account.extensionTokenEncrypted);
+      const a = Buffer.from(rawToken.trim(), 'utf8');
+      const b = Buffer.from(decrypted, 'utf8');
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        throw new UnauthorizedException(
+          'Token da extensão inválido ou substituído por um mais recente.',
+        );
+      }
+    }
+
+    return { account, tenantId: payload.tenantId };
+  }
+
+  async getExtensionStatus(headerToken?: string) {
+    const { account } = await this.resolveAuthenticatedExtensionAccount(headerToken);
+    return {
+      account: this.serializeAccount(account),
+      extensionInfo: getExtensionMetadata(),
+    };
+  }
+
+  async testConversionFromExtension(
+    headerToken: string | undefined,
+    dto: ExtensionTestConversionDto,
+  ) {
+    const { account, tenantId } =
+      await this.resolveAuthenticatedExtensionAccount(headerToken);
+    return this.testConversion(tenantId, {
+      accountId: account.id,
+      url: dto.url,
+    });
+  }
+
+  async saveGatewayFromExtension(
+    headerToken: string | undefined,
+    dto: ExtensionGatewayDto,
+  ) {
+    const { account, tenantId } =
+      await this.resolveAuthenticatedExtensionAccount(headerToken);
+    return this.savePrototypeConfig(tenantId, undefined, {
+      id: account.id,
+      affiliateTag: dto.affiliateTag,
+      partnerGatewayUrl: dto.partnerGatewayUrl,
+      partnerGatewayApiKey: dto.partnerGatewayApiKey,
+    });
+  }
+
+  async clearSessionFromExtension(headerToken?: string) {
+    const { account, tenantId } =
+      await this.resolveAuthenticatedExtensionAccount(headerToken);
+
+    const updated = await this.prisma.mercadoLivreAccount.update({
+      where: { id: account.id },
+      data: {
+        affiliateTag: null,
+        sessionCookieEncrypted: null,
+        sessionCookieMasked: null,
+        sessionExpiresAt: null,
+      },
+    });
+
+    await this.recordAudit(
+      tenantId,
+      undefined,
+      'ML_EXTENSION_SESSION_CLEARED',
+      account.id,
+    );
+
+    return {
+      success: true,
+      message: 'Tag e cookies de sessão removidos do servidor com segurança.',
+      account: this.serializeAccount(updated),
+    };
+  }
+
+  async syncFromExtension(dto: ExtensionSyncDto, headerToken?: string) {
+    const { account, tenantId } = await this.resolveAuthenticatedExtensionAccount(
+      dto.pairingToken || headerToken,
+    );
 
     const cleanCookie = dto.sessionCookie?.trim();
     const cleanTag = dto.affiliateTag?.trim() || account.affiliateTag;
@@ -307,7 +494,7 @@ export class MercadoLivreService {
 
       const offer = await this.prisma.mercadoLivreOffer.create({
         data: {
-          tenantId: payload.tenantId,
+          tenantId,
           accountId: account.id,
           mlItemId: dto.offer.mlItemId?.trim() || null,
           title: dto.offer.title.trim(),
@@ -325,7 +512,7 @@ export class MercadoLivreService {
     }
 
     await this.recordAudit(
-      payload.tenantId,
+      tenantId,
       undefined,
       'ML_EXTENSION_SYNC',
       account.id,
@@ -1018,6 +1205,7 @@ export class MercadoLivreService {
       mlUserId: account.mlUserId,
       mlNickname: account.mlNickname,
       isOAuthConnected: Boolean(account.isOAuthConnected),
+      hasExtensionToken: Boolean(account.extensionTokenEncrypted),
       isActive: Boolean(account.isActive),
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
@@ -1051,7 +1239,7 @@ export class MercadoLivreService {
 
   private verifySignedToken(
     token: string,
-    expectedKind: SignedTokenPayload['kind'],
+    expectedKind: SignedTokenPayload['kind'] | Array<SignedTokenPayload['kind']>,
   ): SignedTokenPayload {
     if (!token || typeof token !== 'string' || !token.includes('.')) {
       throw new BadRequestException('Token assinado inválido ou malformado.');
@@ -1085,12 +1273,22 @@ export class MercadoLivreService {
       throw new BadRequestException('Conteúdo do token inválido.');
     }
 
-    if (parsed.kind !== expectedKind || !parsed.tenantId || !parsed.accountId) {
+    const allowedKinds = Array.isArray(expectedKind)
+      ? expectedKind
+      : [expectedKind];
+
+    if (
+      !allowedKinds.includes(parsed.kind) ||
+      !parsed.tenantId ||
+      !parsed.accountId
+    ) {
       throw new BadRequestException('Escopo do token inválido.');
     }
 
-    if (!parsed.exp || parsed.exp <= Date.now()) {
-      throw new BadRequestException('Token temporário expirado. Gere um novo.');
+    if (parsed.kind !== 'extension_key') {
+      if (!parsed.exp || parsed.exp <= Date.now()) {
+        throw new BadRequestException('Token temporário expirado. Gere um novo.');
+      }
     }
 
     return parsed;

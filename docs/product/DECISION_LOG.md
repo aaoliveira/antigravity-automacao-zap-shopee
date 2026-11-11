@@ -65,3 +65,12 @@
   2. **Alternativa A (`ml_alternative_a_enabled`, padrão `false`):** Fluxo 100% oficial via Mercado Livre Developers OAuth 2.0 (`authorization_code` + `refresh_token`), busca oficial `GET /sites/MLB/search` e importação assistida/fila de ofertas com links oficiais `meli.la` para disparo nas automações.
 - **Justificativa:** Permite entregar imediatamente a experiência desejada do protótipo mantendo conformidade estrita com a Regra 2 do `AGENTS.md` (zero endpoints internos não documentados inventados no backend), enquanto mantém o caminho 100% oficial pronto para ativação por feature flag quando desejado pelo usuário logado.
 - **Impacto em Artefatos:** Schema Prisma (`FeatureFlag`, `MercadoLivreAccount`, `MercadoLivreOffer`, `AffiliatePlatform.MERCADO_LIVRE`, `Automation.platform`), `ADR-008`, `MERCADO_LIVRE_API_CONTRACTS.md`, `INTEGRATIONS.md`, `KNOWN_ISSUES.md`, módulo `mercadolivre` + `feature-flags`, `CouponsModule` e views Vue 3.
+
+---
+
+### DEC-006: Extensão Chrome Manifest V3 Desacoplada e Download via Plataforma para Alternativa B
+- **Data da Decisão:** 2026-11-11
+- **Aprovador:** Product Owner (Usuário)
+- **Contexto:** Necessidade de executar todas as etapas da Alternativa B via extensão Google Chrome (coleta de cookies inclusive `HttpOnly`, tag, gateway homologado e envio de ofertas `meli.la`), com download direto pela plataforma, manual de instalação e capacidade de evolução independente.
+- **Decisão:** Criar pacote independente Manifest V3 em `extensions/mercadolivre-chrome/` com contrato versionado (`src/config/contracts.js`), endpoint de download dinâmico `.zip` (`GET /api/mercadolivre/extension/download`), token contínuo revogável via `X-Extension-Token` (`POST/DELETE /api/mercadolivre/extension/token`) e manual em `docs/manuals/EXTENSAO_CHROME_MERCADO_LIVRE.md`.
+- **Impacto em Artefatos:** `ADR-009`, `extensions/mercadolivre-chrome/`, `MercadoLivreModule`, `main.ts` (CORS), `MercadoLivreView.vue`, `API_CONTRACTS.md` e suítes de testes.

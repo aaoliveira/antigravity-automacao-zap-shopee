@@ -109,10 +109,10 @@ export class ExtensionOfferPayloadDto {
 }
 
 export class ExtensionSyncDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(1000)
-  pairingToken: string;
+  pairingToken?: string;
 
   @IsOptional()
   @IsString()
@@ -129,6 +129,36 @@ export class ExtensionSyncDto {
   @ValidateNested()
   @Type(() => ExtensionOfferPayloadDto)
   offer?: ExtensionOfferPayloadDto;
+}
+
+export class ExtensionTestConversionDto {
+  @IsUrl(
+    { protocols: ['https'], require_protocol: true },
+    { message: 'Informe uma URL HTTPS válida do Mercado Livre.' },
+  )
+  @MaxLength(1000)
+  url: string;
+}
+
+export class ExtensionGatewayDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  @Matches(/^[a-zA-Z0-9_.-]+$/, {
+    message:
+      'A tag de afiliado deve conter apenas letras, números, hífen, ponto ou underscore.',
+  })
+  affiliateTag?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  partnerGatewayUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  partnerGatewayApiKey?: string | null;
 }
 
 export class SaveMlOAuthCredentialsDto {

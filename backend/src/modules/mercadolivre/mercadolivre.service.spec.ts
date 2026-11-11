@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { FEATURE_FLAG_KEYS } from '../feature-flags/feature-flags.constants';
 import { MercadoLivreService } from './mercadolivre.service';
@@ -219,6 +223,61 @@ describe('MercadoLivreService', () => {
 
       expect(syncRes.account.affiliateTag).toBe('tagext');
       expect(syncRes.account.isCookieConnected).toBe(true);
+    });
+
+    it('deve empacotar extensão Chrome para download e autenticar/revogar Token contínuo da Extensão', async () => {
+      const metadata = service.getExtensionPackageInfo();
+      expect(metadata.ready).toBe(true);
+      expect(metadata.version).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(metadata.filesCount).toBeGreaterThanOrEqual(10);
+
+      const pkg = await service.getExtensionDownloadPackage(tenantA);
+      expect(pkg.filename).toContain('shopeezap-ml-extensao-v');
+      expect(pkg.buffer.subarray(0, 2).toString('utf8')).toBe('PK');
+
+      // Token contínuo revogável
+      let persistedEncrypted: string | null = null;
+      const extAccount: any = {
+        id: 'acc-ext-1',
+        tenantId: tenantA,
+        label: 'Conta ML',
+        affiliateTag: 'tagext',
+        extensionTokenEncrypted: null,
+        sessionCookieEncrypted: vault.encrypt('ssid=cookie1'),
+        sessionCookieMasked: '************kie1',
+        sessionExpiresAt: new Date(Date.now() + 14 * 86400000),
+        isActive: true,
+      };
+      prismaMock.mercadoLivreAccount.findFirst.mockImplementation(async () => ({
+        ...extAccount,
+        extensionTokenEncrypted: persistedEncrypted,
+      }));
+      prismaMock.mercadoLivreAccount.update.mockImplementation(async ({ data }: any) => {
+        if ('extensionTokenEncrypted' in data) {
+          persistedEncrypted = data.extensionTokenEncrypted;
+        }
+        return { ...extAccount, ...data };
+      });
+
+      const gen = await service.generateExtensionToken(tenantA, userId, extAccount.id);
+      expect(gen.extensionToken).toContain('.');
+      expect(persistedEncrypted).toBeTruthy();
+
+      const status = await service.getExtensionStatus(gen.extensionToken);
+      expect(status.account.hasExtensionToken).toBe(true);
+      expect(status.extensionInfo.ready).toBe(true);
+
+      const testRes = await service.testConversionFromExtension(gen.extensionToken, {
+        url: 'https://www.mercadolivre.com.br/p/MLB123',
+      });
+      expect(testRes.status).toBe('OFFICIAL_CONTRACT_REQUIRED');
+
+      await service.revokeExtensionToken(tenantA, userId, extAccount.id);
+      expect(persistedEncrypted).toBeNull();
+
+      await expect(service.getExtensionStatus(gen.extensionToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 

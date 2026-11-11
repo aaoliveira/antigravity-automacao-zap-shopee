@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopeeZap — Conector Mercado Livre</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="brand">
+        <img src="../../icons/icon48.png" alt="Logo" class="logo" />
+        <div>
+          <h1>ShopeeZap ML</h1>
+          <p class="subtitle">Alternativa B • <span id="ext-version">v1.0.0</span></p>
+        </div>
+      </div>
+      <span id="header-badge" class="badge badge-neutral">Desconectado</span>
+    </header>
+
+    <div id="update-banner" class="alert alert-amber hidden">
+      Nova versão disponível na plataforma (<span id="remote-version"></span>). Baixe o pacote atualizado em Configurações → Mercado Livre.
+    </div>
+
+    <div id="feedback-box" class="alert hidden"></div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="session">1. Sessão</button>
+      <button class="tab" data-tab="offer">2. Oferta / Converter</button>
+      <button class="tab" data-tab="gateway">3. Gateway & Manual</button>
+    </nav>
+
+    <!-- ABA 1: PARECIMENTO & COOKIES -->
+    <section id="tab-session" class="tab-panel active">
+      <div id="status-card" class="status-card hidden">
+        <div class="status-dot"></div>
+        <div class="status-body">
+          <strong id="status-title">Conectado</strong>
+          <div id="status-detail" class="status-detail"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="base-url">URL da Plataforma ShopeeZap</label>
+        <input id="base-url" type="url" placeholder="http://localhost:5173 ou https://app.seudominio.com" />
+      </div>
+
+      <div class="field">
+        <label for="ext-token">Token da Extensão (gerado no painel)</label>
+        <input id="ext-token" type="password" placeholder="Cole o token contínuo ou de pareamento..." />
+      </div>
+
+      <div class="row-actions">
+        <button id="btn-save-conn" class="btn btn-secondary">Validar & Parear</button>
+        <button id="btn-disconnect-local" class="btn btn-ghost hidden">Desvincular</button>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="field">
+        <label for="affiliate-tag">Tag de Afiliado Mercado Livre</label>
+        <input id="affiliate-tag" type="text" placeholder="Ex: azevedoalexandre39" />
+      </div>
+
+      <button id="btn-sync-cookies" class="btn btn-primary btn-full">
+        Sincronizar Cookies (incl. HttpOnly) & Tag
+      </button>
+
+      <p id="cookie-summary" class="hint">
+        Clique acima estando logado no mercadolivre.com.br. Os cookies são cifrados com AES-256-GCM no servidor (validade de 14 dias).
+      </p>
+    </section>
+
+    <!-- ABA 2: CAPTURA DA ABA & TESTAR CONVERSÃO -->
+    <section id="tab-offer" class="tab-panel">
+      <div class="row-between">
+        <span class="section-title">Produto da Aba Atual</span>
+        <button id="btn-refresh-tab" class="link-btn" type="button">Capturar aba ML</button>
+      </div>
+
+      <div class="field">
+        <label for="offer-original-url">URL Original no Mercado Livre</label>
+        <input id="offer-original-url" type="url" placeholder="https://produto.mercadolivre.com.br/MLB-..." />
+      </div>
+
+      <div class="row-actions">
+        <button id="btn-test-conversion" class="btn btn-secondary" type="button">
+          Testar / Converter Gateway
+        </button>
+      </div>
+
+      <div id="conversion-result" class="alert hidden"></div>
+
+      <hr class="divider" />
+
+      <div class="field">
+        <label for="offer-title">Título do Produto</label>
+        <input id="offer-title" type="text" placeholder="Detectado automaticamente na aba do produto" />
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="offer-price">Preço (R$)</label>
+          <input id="offer-price" type="number" step="0.01" min="0.01" />
+        </div>
+        <div class="field">
+          <label for="offer-seller">Vendedor</label>
+          <input id="offer-seller" type="text" placeholder="Opcional (match cupom)" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="offer-short-url">Link Afiliado Oficial (meli.la)</label>
+        <input id="offer-short-url" type="url" placeholder="https://meli.la/... (barra ML ou gateway)" />
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="offer-keyword">Nicho / Palavra-chave</label>
+          <input id="offer-keyword" type="text" placeholder="Ex: fone bluetooth" />
+        </div>
+        <div class="field">
+          <label for="offer-image">URL da Imagem</label>
+          <input id="offer-image" type="url" placeholder="https://http2.mlstatic.com/..." />
+        </div>
+      </div>
+
+      <button id="btn-send-offer" class="btn btn-primary btn-full" type="button">
+        Enviar Oferta para Fila de Automações
+      </button>
+    </section>
+
+    <!-- ABA 3: GATEWAY HOMOLOGADO & MANUAL -->
+    <section id="tab-gateway" class="tab-panel">
+      <div class="field">
+        <label for="gw-url">URL do Gateway Parceiro Homologado (HTTPS)</label>
+        <input id="gw-url" type="url" placeholder="https://seu-gateway-homologado.com/ml/convert" />
+      </div>
+
+      <div class="field">
+        <label for="gw-key">API Key do Gateway (opcional)</label>
+        <input id="gw-key" type="password" placeholder="Deixe vazio para manter atual" />
+      </div>
+
+      <div class="row-actions">
+        <button id="btn-save-gateway" class="btn btn-primary" type="button">Salvar Gateway</button>
+        <button id="btn-clear-remote" class="btn btn-danger-outline" type="button">Remover Sessão ML</button>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="manual-box">
+        <strong>Resumo Rápido (Alternativa B)</strong>
+        <ol>
+          <li>No painel ShopeeZap → <em>Mercado Livre</em>, gere o Token da Extensão.</li>
+          <li>Cole a URL da plataforma + Token na aba <strong>1. Sessão</strong> e valide.</li>
+          <li>Faça login em <code>mercadolivre.com.br</code> e clique em <strong>Sincronizar Cookies</strong>.</li>
+          <li>Abra qualquer produto ML, gere/cole o <code>meli.la</code> (ou use seu Gateway Homologado) e envie na aba <strong>2. Oferta</strong>.</li>
+        </ol>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

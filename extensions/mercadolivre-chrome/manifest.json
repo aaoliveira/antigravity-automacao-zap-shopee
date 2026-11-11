@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "ShopeeZap — Conector Mercado Livre Afiliados",
+  "short_name": "ShopeeZap ML",
+  "version": "1.0.0",
+  "description": "Sincronize cookies (inclusive HttpOnly), tag de afiliado, gateway homologado e envie ofertas meli.la para suas automações WhatsApp.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "ShopeeZap — Conector Mercado Livre",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "cookies",
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*",
+    "https://*.mercadolibre.com/*",
+    "https://meli.la/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.mercadolivre.com.br/*",
+        "https://*.mercadolibre.com/*"
+      ],
+      "js": [
+        "src/content/ml-extractor.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

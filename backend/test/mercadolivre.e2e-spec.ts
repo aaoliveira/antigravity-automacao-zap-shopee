@@ -226,6 +226,60 @@ describe('Feature Flags & Mercado Livre Hybrid Integration (E2E)', () => {
       })
       .expect(200);
 
+    // Download da Extensão Chrome & Token contínuo revogável
+    const pkgMetaRes = await request(app.getHttpServer())
+      .get('/api/mercadolivre/extension/package')
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+    expect(pkgMetaRes.body.data.ready).toBe(true);
+    expect(pkgMetaRes.body.data.filesCount).toBeGreaterThanOrEqual(10);
+
+    const zipRes = await request(app.getHttpServer())
+      .get('/api/mercadolivre/extension/download')
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(zipRes.headers['content-type']).toContain('application/zip');
+    expect(zipRes.headers['content-disposition']).toContain('.zip');
+    expect((zipRes.body as Buffer).subarray(0, 2).toString('utf8')).toBe('PK');
+
+    // Gera Token contínuo da Extensão e executa endpoints via X-Extension-Token
+    const extTokRes = await request(app.getHttpServer())
+      .post('/api/mercadolivre/extension/token')
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({ accountId: tenantA_mlAccountId })
+      .expect(201);
+    const extToken = extTokRes.body.data.extensionToken;
+
+    const extStatusRes = await request(app.getHttpServer())
+      .get('/api/mercadolivre/extension/status')
+      .set('X-Extension-Token', extToken)
+      .expect(200);
+    expect(extStatusRes.body.data.account.hasExtensionToken).toBe(true);
+
+    const extConvRes = await request(app.getHttpServer())
+      .post('/api/mercadolivre/extension/test-conversion')
+      .set('X-Extension-Token', extToken)
+      .send({ url: 'https://www.mercadolivre.com.br/p/MLB123456' })
+      .expect(200);
+    expect(extConvRes.body.data.status).toBe('OFFICIAL_CONTRACT_REQUIRED');
+
+    // Revogação do Token da Extensão bloqueia acessos subsequentes (401)
+    await request(app.getHttpServer())
+      .delete(`/api/mercadolivre/extension/token?accountId=${tenantA_mlAccountId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get('/api/mercadolivre/extension/status')
+      .set('X-Extension-Token', extToken)
+      .expect(401);
+
     // Desabilita Alternativa B no Tenant A -> bloqueia endpoints B (Tenant B continua com B=true!)
     await request(app.getHttpServer())
       .patch('/api/feature-flags')

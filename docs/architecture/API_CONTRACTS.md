@@ -173,7 +173,15 @@
 | `DELETE` | `/api/mercadolivre/prototype/config` | Remove cookies e tag da Alternativa B pertencentes ao tenant | JWT + `Alt B` | `200`, `403` |
 | `POST` | `/api/mercadolivre/prototype/pairing-token` | Gera token temporário assinado HMAC-SHA256 (15 min) para pareamento no navegador | JWT + `Alt B` | `201`, `403` |
 | `POST` | `/api/mercadolivre/prototype/test-conversion` | Valida URL ML e aciona Gateway Homologado ou informa `OFFICIAL_CONTRACT_REQUIRED` | JWT + `Alt B` | `200`, `400`, `403` |
-| `POST` | `/api/mercadolivre/extension/sync` | Recebe sincronização do conector/extensão do usuário validada via HMAC pairing token | HMAC Token + `Alt B` | `200`, `400`, `403`, `404` |
+| `POST` | `/api/mercadolivre/extension/sync` | Recebe sincronização do conector/extensão do usuário validada via HMAC pairing token ou `X-Extension-Token` | HMAC / Ext Token + `Alt B` | `200`, `400`, `401`, `403`, `404` |
+| `GET` | `/api/mercadolivre/extension/package` | Retorna versão e metadados dinâmicos do pacote independente da extensão Chrome | JWT | `200` |
+| `GET` | `/api/mercadolivre/extension/download` | Gera e faz download do pacote `.zip` pronto da extensão Chrome (`manifest.json` + scripts) | JWT + `Alt B` | `200`, `403` |
+| `POST` | `/api/mercadolivre/extension/token` | Gera ou rotaciona o token contínuo revogável da extensão (cifrado com AES-256-GCM) | JWT + `Alt B` | `201`, `403` |
+| `DELETE` | `/api/mercadolivre/extension/token` | Revoga imediatamente o token contínuo da extensão pertencente ao tenant | JWT + `Alt B` | `200`, `403` |
+| `GET` | `/api/mercadolivre/extension/status` | Retorna status mascarado da conta e versão da extensão na plataforma | `X-Extension-Token` + `Alt B` | `200`, `401`, `403` |
+| `POST` | `/api/mercadolivre/extension/test-conversion` | Testa conversão de URL ML na extensão via Gateway Parceiro Homologado configurado | `X-Extension-Token` + `Alt B` | `200`, `400`, `401`, `403` |
+| `POST` | `/api/mercadolivre/extension/gateway` | Salva Tag e Gateway Homologado (anti-SSRF) diretamente pelo popup da extensão | `X-Extension-Token` + `Alt B` | `200`, `400`, `401`, `403` |
+| `DELETE` | `/api/mercadolivre/extension/session` | Limpa tag e cookies de sessão no servidor mantendo pareamento seguro | `X-Extension-Token` + `Alt B` | `200`, `401`, `403` |
 | `POST` | `/api/mercadolivre/oauth/credentials` | Salva App ID, Client Secret cifrado e Redirect URI oficial Mercado Livre Developers | JWT + `Alt A` | `201`, `400`, `403` |
 | `GET` | `/api/mercadolivre/oauth/authorize-url` | Gera URL oficial `auth.mercadolivre.com.br/authorization` com `state` HMAC | JWT + `Alt A` | `200`, `400`, `403` |
 | `POST` | `/api/mercadolivre/oauth/exchange` | Valida `state`, troca `code` em `/oauth/token` e consulta `/users/me` | JWT + `Alt A` | `200`, `400`, `403` |

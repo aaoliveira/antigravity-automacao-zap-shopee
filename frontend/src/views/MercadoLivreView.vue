@@ -200,33 +200,131 @@
             </span>
           </div>
 
-          <!-- Conectar automaticamente (Recomendado) -->
-          <div class="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <!-- Conectar automaticamente com Extensão Chrome (Recomendado) -->
+          <div class="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-4">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div class="space-y-1">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold text-gray-900">Conectar automaticamente</span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-sm font-bold text-gray-900">Conectar automaticamente via Extensão Chrome</span>
                   <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-200 text-amber-900">
                     Recomendado
                   </span>
+                  <span
+                    v-if="extensionPackage?.ready"
+                    data-testid="extension-version-badge"
+                    class="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-white border border-amber-200 text-amber-900"
+                  >
+                    v{{ extensionPackage.version }}
+                  </span>
                 </div>
                 <p class="text-xs text-gray-700">
-                  Gere um token temporário (15 min) e execute o conector no navegador já logado no Mercado Livre para sincronizar sua sessão sem copiar manualmente.
+                  Sincroniza automaticamente todos os cookies do Mercado Livre (incluindo <code class="bg-white/80 px-1 rounded">HttpOnly</code>), gerencia sua tag, testa gateway homologado e captura ofertas <code class="bg-white/80 px-1 rounded">meli.la</code> direto da aba do navegador.
                 </p>
               </div>
+
+              <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  data-testid="btn-download-extension"
+                  @click="downloadExtensionPackage"
+                  :disabled="downloadingExtension || !extensionPackage?.ready"
+                  class="px-3.5 py-2 bg-white hover:bg-gray-50 text-gray-800 border border-amber-300 text-xs font-bold rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {{ downloadingExtension ? 'Empacotando...' : '⬇ Baixar Extensão (.zip)' }}
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-generate-ext-token"
+                  @click="generateExtensionToken"
+                  :disabled="generatingExtToken"
+                  class="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-sm transition-colors disabled:opacity-60"
+                >
+                  {{ generatingExtToken ? 'Gerando...' : defaultAccount?.hasExtensionToken ? 'Rotacionar Token' : 'Gerar Token da Extensão' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Token Contínuo Gerado -->
+            <div v-if="generatedExtensionToken || defaultAccount?.hasExtensionToken" class="bg-white rounded-lg border border-amber-200 p-3 space-y-2 text-xs">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="font-semibold text-gray-800">
+                  {{ generatedExtensionToken ? 'Novo Token da Extensão (copie e cole no popup do Chrome)' : 'Token da Extensão ativo nesta conta' }}
+                </span>
+                <div class="flex items-center gap-3">
+                  <button
+                    v-if="generatedExtensionToken"
+                    type="button"
+                    data-testid="btn-copy-ext-token"
+                    @click="copyExtensionToken"
+                    class="text-shopee-orange hover:underline font-semibold"
+                  >
+                    {{ copiedExtToken ? 'Token copiado!' : 'Copiar Token' }}
+                  </button>
+                  <button
+                    v-if="defaultAccount?.hasExtensionToken"
+                    type="button"
+                    data-testid="btn-revoke-ext-token"
+                    @click="revokeExtensionToken"
+                    class="text-red-600 hover:underline font-semibold"
+                  >
+                    Revogar Token
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="generatedExtensionToken" class="space-y-1.5">
+                <div class="text-[11px] text-gray-600">
+                  URL da Plataforma para colar na extensão: <code class="bg-gray-100 px-1.5 py-0.5 rounded font-mono">{{ platformOrigin }}</code>
+                </div>
+                <pre data-testid="generated-ext-token-value" class="bg-gray-900 text-emerald-300 p-2 rounded overflow-x-auto text-[11px] font-mono select-all">{{ generatedExtensionToken }}</pre>
+              </div>
+            </div>
+
+            <!-- Barra Inferior: Manual de Instalação & Bookmarklet Alternativo -->
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+              <button
+                type="button"
+                data-testid="btn-toggle-install-manual"
+                @click="showInstallManual = !showInstallManual"
+                class="font-semibold text-amber-900 hover:underline flex items-center gap-1"
+              >
+                <span>📖 {{ showInstallManual ? 'Ocultar manual de instalação' : 'Ver manual passo a passo de instalação no Chrome' }}</span>
+              </button>
+
               <button
                 type="button"
                 @click="generatePairingConnector"
                 :disabled="pairingLoading"
-                class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-sm transition-colors shrink-0 disabled:opacity-60"
+                class="text-gray-600 hover:text-shopee-orange hover:underline font-medium"
               >
-                {{ pairingLoading ? 'Gerando...' : 'Gerar Conector Navegador' }}
+                {{ pairingLoading ? 'Gerando...' : 'Usar bookmarklet rápido (15 min)' }}
               </button>
+            </div>
+
+            <!-- Checklist Manual de Instalação -->
+            <div
+              v-if="showInstallManual"
+              data-testid="extension-install-manual"
+              class="bg-white rounded-lg border border-amber-200 p-4 space-y-2 text-xs text-gray-700"
+            >
+              <h5 class="font-bold text-gray-900">Manual Rápido: Como Instalar a Extensão no Google Chrome</h5>
+              <ol class="list-decimal list-inside space-y-1.5">
+                <li>Clique em <strong>Baixar Extensão (.zip)</strong> acima e descompacte o arquivo em uma pasta fixa no seu computador (ex.: <code class="bg-gray-100 px-1 rounded">Documentos/shopeezap-ml</code>).</li>
+                <li>No Google Chrome, abra <code class="bg-gray-100 px-1 rounded">chrome://extensions</code> na barra de endereços.</li>
+                <li>Ative a chave <strong>Modo do desenvolvedor</strong> (canto superior direito).</li>
+                <li>Clique em <strong>Carregar sem compactação</strong> (*Load unpacked*) e selecione a pasta onde está o arquivo <code class="bg-gray-100 px-1 rounded">manifest.json</code>.</li>
+                <li>Fixe o ícone <strong>ShopeeZap ML</strong> na barra do navegador e clique nele.</li>
+                <li>Na aba <strong>1. Sessão</strong> da extensão, informe a URL <code class="bg-gray-100 px-1 rounded">{{ platformOrigin }}</code>, cole o <strong>Token da Extensão</strong> gerado acima e clique em <strong>Validar &amp; Parear</strong>.</li>
+                <li>Abra <code class="bg-gray-100 px-1 rounded">mercadolivre.com.br</code> logado na sua conta de afiliado e clique em <strong>Sincronizar Cookies &amp; Tag</strong> (captura inclusive cookies <code class="bg-gray-100 px-1 rounded">HttpOnly</code>).</li>
+              </ol>
+              <p class="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                Manual completo e guia de evolução independente disponíveis em <code class="bg-gray-100 px-1 rounded">docs/manuals/EXTENSAO_CHROME_MERCADO_LIVRE.md</code>.
+              </p>
             </div>
 
             <div v-if="pairingInfo" class="bg-white rounded-lg border border-amber-200 p-3 space-y-2 text-xs">
               <div class="flex items-center justify-between">
-                <span class="font-semibold text-gray-800">Conector pronto (válido por 15 min)</span>
+                <span class="font-semibold text-gray-800">Bookmarklet pronto (válido por 15 min)</span>
                 <button
                   type="button"
                   @click="copyBookmarklet"
@@ -236,7 +334,7 @@
                 </button>
               </div>
               <p class="text-gray-600">
-                1) Abra sua aba autenticada em <code class="bg-gray-100 px-1 rounded">mercadolivre.com.br</code> → 2) Cole o bookmarklet ou envie via extensão local para <code class="bg-gray-100 px-1 rounded">{{ pairingInfo.syncPath }}</code>.
+                1) Abra sua aba autenticada em <code class="bg-gray-100 px-1 rounded">mercadolivre.com.br</code> → 2) Cole o bookmarklet no endereço/console apontando para <code class="bg-gray-100 px-1 rounded">{{ pairingInfo.syncPath }}</code>.
               </p>
               <pre class="bg-gray-900 text-emerald-300 p-2 rounded overflow-x-auto text-[11px] font-mono">{{ bookmarkletSnippet }}</pre>
             </div>
@@ -743,6 +841,13 @@ function showFeedback(msg: string, isError = false) {
 
 // Alternativa B state
 const showPrototypeGuide = ref(false);
+const showInstallManual = ref(false);
+const downloadingExtension = ref(false);
+const generatingExtToken = ref(false);
+const generatedExtensionToken = ref('');
+const copiedExtToken = ref(false);
+const extensionPackage = ref<any>({ ready: false, version: '1.0.0' });
+const platformOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
 const savingPrototype = ref(false);
 const pairingLoading = ref(false);
 const pairingInfo = ref<any>(null);
@@ -824,6 +929,9 @@ async function loadStatus() {
     if (data) {
       flags.value = data.featureFlags;
       accounts.value = data.accounts || [];
+      if (data.extensionPackage) {
+        extensionPackage.value = data.extensionPackage;
+      }
       syncFormsFromAccount(data.defaultAccount);
     }
     if (flags.value.ml_alternative_a_enabled) {
@@ -900,6 +1008,83 @@ async function removePrototypeConfig() {
   } catch (err: any) {
     showFeedback(
       err.response?.data?.error?.message || 'Falha ao remover configuração.',
+      true,
+    );
+  }
+}
+
+async function downloadExtensionPackage() {
+  downloadingExtension.value = true;
+  try {
+    const res = await api.get('/mercadolivre/extension/download', {
+      responseType: 'blob',
+    });
+    const disposition = String(res.headers['content-disposition'] || '');
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    const filename =
+      match?.[1] ||
+      `shopeezap-ml-extensao-v${extensionPackage.value?.version || '1.0.0'}.zip`;
+
+    const blobUrl = window.URL.createObjectURL(res.data);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(blobUrl);
+    showFeedback(`Download da extensão (${filename}) iniciado! Veja o manual abaixo para instalar no Chrome.`);
+  } catch (err: any) {
+    showFeedback(
+      err.response?.data?.error?.message || 'Erro ao baixar pacote da extensão Chrome.',
+      true,
+    );
+  } finally {
+    downloadingExtension.value = false;
+  }
+}
+
+async function generateExtensionToken() {
+  generatingExtToken.value = true;
+  copiedExtToken.value = false;
+  try {
+    const res = await api.post('/mercadolivre/extension/token', {
+      accountId: defaultAccount.value?.id,
+    });
+    generatedExtensionToken.value = res.data.data.extensionToken;
+    showFeedback('Token da Extensão gerado! Copie e cole no popup da extensão no Chrome.');
+    await loadStatus();
+  } catch (err: any) {
+    showFeedback(
+      err.response?.data?.error?.message || 'Erro ao gerar Token da Extensão.',
+      true,
+    );
+  } finally {
+    generatingExtToken.value = false;
+  }
+}
+
+async function copyExtensionToken() {
+  if (!generatedExtensionToken.value) return;
+  await navigator.clipboard.writeText(generatedExtensionToken.value);
+  copiedExtToken.value = true;
+  setTimeout(() => {
+    copiedExtToken.value = false;
+  }, 2500);
+}
+
+async function revokeExtensionToken() {
+  if (!confirm('Deseja revogar o Token atual da Extensão? Extensões pareadas deixarão de conectar até você gerar outro.')) return;
+  try {
+    await api.delete('/mercadolivre/extension/token', {
+      params: { accountId: defaultAccount.value?.id },
+    });
+    generatedExtensionToken.value = '';
+    showFeedback('Token da Extensão revogado com sucesso.');
+    await loadStatus();
+  } catch (err: any) {
+    showFeedback(
+      err.response?.data?.error?.message || 'Erro ao revogar Token da Extensão.',
       true,
     );
   }

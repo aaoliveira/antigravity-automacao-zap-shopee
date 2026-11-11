@@ -254,3 +254,15 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 11 testes passando (`11.2s`).
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.31s`) sem erros.
 
+### 2026-11-11 — Extensão Google Chrome Desacoplada (Alternativa B), Download pela Plataforma e Manual de Instalação
+- **Entregáveis:**
+  - Extensão Chrome Manifest V3 Independente ([`extensions/mercadolivre-chrome/`](../../extensions/mercadolivre-chrome/README.md)): Pacote autônomo com `manifest.json` (`cookies`, `storage`, `activeTab`), contrato HTTP versionado em `src/config/contracts.js`, coletor de cookies inclusive `HttpOnly` (`src/services/cookie-collector.js`), extrator DOM/JSON-LD/`meli.la` (`src/content/ml-extractor.js`), service worker (`src/background/service-worker.js`), popup completo com 3 abas (`src/popup/`) e suíte isolada (`tests/extension.test.mjs`).
+  - Backend Download & Tokens Revogáveis: [`backend/src/modules/mercadolivre/extension-zip.util.ts`](../../backend/src/modules/mercadolivre/extension-zip.util.ts) (empacotamento `.zip` em memória via `zlib` com leitura dinâmica de `ML_EXTENSION_DIR` e proteção anti-*path-traversal*), CORS atualizado em [`backend/src/main.ts`](../../backend/src/main.ts) (`chrome-extension://`) e rotas em [`mercadolivre.controller.ts`](../../backend/src/modules/mercadolivre/mercadolivre.controller.ts) (`/extension/package`, `/extension/download`, `/extension/token`, `/extension/status`, `/extension/test-conversion`, `/extension/gateway`, `/extension/session`).
+  - Frontend & Manual: [`frontend/src/views/MercadoLivreView.vue`](../../frontend/src/views/MercadoLivreView.vue) com botão **Baixar Extensão (.zip)**, badge dinâmico de versão, geração/rotação/revogação de token contínuo e manual passo a passo embutido; manual completo em [`docs/manuals/EXTENSAO_CHROME_MERCADO_LIVRE.md`](../manuals/EXTENSAO_CHROME_MERCADO_LIVRE.md); governança em [`ADR-009`](../architecture/decisions/ADR-009-extensao-chrome-mercado-livre-desacoplada.md), [`DECISION_LOG.md`](../product/DECISION_LOG.md) (`DEC-006`) e [`API_CONTRACTS.md`](../architecture/API_CONTRACTS.md).
+- **Testes Consolidados Após Alteração (218 testes aprovados — 0 falhas):**
+  - Extensão Chrome (Node Test Runner): 4 testes passando (`65.62ms`), pacote `.zip` validado.
+  - Backend Unit Tests: 11 suites, 79 testes passando (`7.327s`).
+  - Backend E2E Tests: 13 suites, 124 testes passando (`15.715s`).
+  - Frontend E2E (Playwright): 1 suite, 11 testes passando (`10.0s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.21s`) sem erros.
+

@@ -1,0 +1,19 @@
+{
+  "name": "shopeezap-ml-chrome-extension",
+  "version": "1.0.0",
+  "description": "Extensão Chrome Manifest V3 independente para executar todas as etapas da Alternativa B (Mercado Livre Afiliados) integrada ao ShopeeZap.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "package": "node scripts/build-zip.mjs"
+  },
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "mercado-livre",
+    "afiliados",
+    "shopeezap"
+  ],
+  "license": "UNLICENSED"
+}

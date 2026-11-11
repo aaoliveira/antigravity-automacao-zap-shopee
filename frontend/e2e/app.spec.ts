@@ -212,6 +212,7 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
             accounts: [],
             defaultAccount: null,
             activeOffersCount: 0,
+            extensionPackage: { ready: true, version: '1.0.0', contractVersion: '1.0.0', filesCount: 16 },
           },
         }),
       });
@@ -1005,8 +1006,55 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
             accounts: mlState.account ? [mlState.account] : [],
             defaultAccount: mlState.account,
             activeOffersCount: mlState.offers.length,
+            extensionPackage: { ready: true, version: '1.0.0', contractVersion: '1.0.0', filesCount: 16 },
           },
         }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/extension/token**', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        if (mlState.account) mlState.account.hasExtensionToken = false;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: { success: true } }),
+        });
+        return;
+      }
+      if (!mlState.account) {
+        mlState.account = {
+          id: 'ml-acc-e2e-1',
+          label: 'Conta Mercado Livre',
+          isCookieConnected: false,
+          cookieDaysRemaining: 0,
+          hasExtensionToken: true,
+        };
+      } else {
+        mlState.account.hasExtensionToken = true;
+      }
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            accountId: mlState.account.id,
+            extensionToken: 'ext-e2e-token-abc123.deadbeef',
+            maskedToken: '************df',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/extension/download', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'Content-Disposition': 'attachment; filename="shopeezap-ml-extensao-v1.0.0.zip"',
+        },
+        body: Buffer.from('PK\x03\x04mockzip'),
       });
     });
 
@@ -1108,6 +1156,24 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     // Por padrão: Alternativa B visível e Alternativa A oculta
     await expect(page.getByTestId('section-ml-alt-b')).toBeVisible();
     await expect(page.getByTestId('section-ml-alt-a')).toHaveCount(0);
+    await expect(page.getByTestId('extension-version-badge')).toContainText('v1.0.0');
+
+    // Manual de instalação + download da extensão + geração/revogação de token
+    await page.getByTestId('btn-toggle-install-manual').click();
+    await expect(page.getByTestId('extension-install-manual')).toBeVisible();
+    await expect(page.locator('text=chrome://extensions')).toBeVisible();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('btn-download-extension').click(),
+    ]);
+    expect(download.suggestedFilename()).toContain('shopeezap-ml-extensao-v1.0.0.zip');
+
+    await page.getByTestId('btn-generate-ext-token').click();
+    await expect(page.getByTestId('generated-ext-token-value')).toContainText('ext-e2e-token-abc123');
+    await page.on('dialog', (d) => d.accept());
+    await page.getByTestId('btn-revoke-ext-token').click();
+    await expect(page.getByTestId('generated-ext-token-value')).toHaveCount(0);
 
     // Salva configuração Alternativa B
     await page.fill('input[placeholder="Ex: azevedoalexandre39"]', 'azevedoalexandre39');

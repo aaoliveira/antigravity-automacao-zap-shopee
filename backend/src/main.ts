@@ -29,9 +29,34 @@ async function bootstrap() {
 
   // CORS
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const allowedOrigins = new Set(
+    [frontendUrl, 'http://localhost:5173']
+      .flatMap((v) => v.split(','))
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:5173'],
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        allowedOrigins.has(origin) ||
+        /^chrome-extension:\/\/[a-z]{32}$/.test(origin)
+      ) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origem CORS não permitida: ${origin}`), false);
+    },
     credentials: true,
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'X-Extension-Token',
+      'X-Extension-Version',
+      'X-Request-Id',
+    ],
+    exposedHeaders: ['Content-Disposition'],
   });
 
   const port = process.env.PORT || 3005;
