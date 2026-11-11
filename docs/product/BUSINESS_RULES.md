@@ -75,7 +75,7 @@ RN-PUB (Publicação, Jitter e Idempotência)
 
 ### Domínio: Publicação e Jitter Temporal (RN-PUB)
 
-- **RN-PUB-001 (Jitter Obrigatório entre Grupos):** Quando uma execução enviar a mesma oferta para múltiplos grupos, deve ser inserido um delay aleatório configurável (ex: entre 5 e 20 segundos) entre o envio para o Grupo $K$ e o envio para o Grupo $K+1$. Essa regra previne detecção de comportamento de spam por parte da rede do WhatsApp.
+- **RN-PUB-001 (Jitter Humanizado, Cooldown por Instância e Macro-Pausa em Lote):** Quando uma execução enviar a mesma oferta para múltiplos grupos, deve aplicar delay aleatório com distribuição `[0,7x; 1,6x]` em torno do maior valor entre o jitter da automação e o intervalo mínimo global da instância, além de macro-pausa humana (`20s–45s`) a cada lote de 5 grupos e micro-variação (`±12%`) no próximo agendamento dentro da janela horária. Essa regra previne rajadas `0s` e detecção de comportamento robótico no WhatsApp.
 - **RN-PUB-002 (Compartilhamento da Oferta na Mesma Execução):** Em uma determinada execução de uma automação com múltiplos grupos, todos os grupos recebem **o mesmo produto e o mesmo link de afiliado** sorteados para aquela execução específica, salvo especificação formal em contrário.
 - **RN-PUB-003 (Estrutura Obrigatória da Mensagem):** A mensagem publicada no grupo deve conter obrigatoriamente:
   - Imagem oficial do produto (obtida da API Shopee).

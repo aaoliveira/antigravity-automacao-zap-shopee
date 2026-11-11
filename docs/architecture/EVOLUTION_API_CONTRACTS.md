@@ -188,9 +188,11 @@
   "mimetype": "image/jpeg",
   "caption": "🔥 *Garrafa Térmica Inox 500ml com Sensor Digital*\n\n💰 *Por apenas:* R$ 29,90\n\n👉 *Compre com desconto aqui:* https://shope.ee/m9XyzAbc",
   "media": "https://down-br.img.susercontent.com/file/br-11134207-7r98o-lx192837",
-  "fileName": "produto.jpg"
+  "fileName": "oferta-shopee-item123.jpg",
+  "delay": 1200
 }
 ```
+> *Nota verificada em 2026-11-11 via documentação oficial (`https://docs.evolutionfoundation.com.br/evolution-api`):* o campo opcional `delay` (inteiro em milissegundos) é aceito oficialmente em `POST /message/sendMedia/{instanceName}` para simular comportamento humano antes do envio da mídia.
 - **Resposta de Sucesso (`HTTP 201 Created`):**
 ```json
 {

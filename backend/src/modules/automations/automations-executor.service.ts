@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   Optional,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { QueueService } from '../queue/queue.service';
@@ -15,6 +16,13 @@ import { AutomationsSchedulerService } from './automations-scheduler.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { MercadoLivreService } from '../mercadolivre/mercadolivre.service';
 import {
+  classifyEvolutionSendError,
+  computeCircuitCooldownMinutes,
+  computeEffectiveInstanceDailyLimit,
+  computeHumanizedGroupDelayMs,
+  getStartOfDayInZone,
+} from '../evolution/instance-safety.helper';
+import {
   AffiliatePlatform,
   AutomationStatus,
   DispatchStrategy,
@@ -25,8 +33,17 @@ import {
 import * as crypto from 'crypto';
 
 @Injectable()
-export class AutomationsExecutorService {
+export class AutomationsExecutorService implements OnModuleDestroy {
   private readonly logger = new Logger(AutomationsExecutorService.name);
+  private shuttingDown = false;
+
+  markShuttingDown() {
+    this.shuttingDown = true;
+  }
+
+  onModuleDestroy() {
+    this.shuttingDown = true;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -48,11 +65,14 @@ export class AutomationsExecutorService {
     automationId: string,
     tenantId: string,
     isManual = false,
+    options?: { instanceLockWaitMs?: number },
   ): Promise<{ success: boolean; executionId?: string; message: string; status: ExecutionStatus }> {
     const lockKey = `lock:automation:${automationId}`;
     const lockToken = crypto.randomUUID();
+    let instanceLockKey: string | null = null;
+    const instanceLockToken = crypto.randomUUID();
 
-    // 1. Aquisição de Lock Distribuído no Redis (10 minutos de TTL)
+    // 1. Aquisição de Lock Distribuído por automação no Redis (10 minutos de TTL)
     const acquired = await this.queueService.acquireLock(lockKey, lockToken, 600);
     if (!acquired) {
       this.logger.warn(
@@ -136,8 +156,36 @@ export class AutomationsExecutorService {
         }
       }
 
-      // 3. Validação de Limite Diário (meia-noite no fuso horário do tenant)
-      const startOfDay = this.getStartOfDayInZone(tenantTimezone);
+      // 2.1 Lock Global por Instância WhatsApp (serializa múltiplas automações no mesmo número)
+      const candidateInstanceLockKey = `lock:instance:${automation.instanceId}`;
+      const instanceLockWaitMs =
+        options?.instanceLockWaitMs ??
+        (Number.parseInt(process.env.INSTANCE_LOCK_WAIT_MS || '15000', 10) ||
+          15000);
+      const instanceAcquired = await this.acquireInstanceLockWithWait(
+        candidateInstanceLockKey,
+        instanceLockToken,
+        600,
+        instanceLockWaitMs,
+      );
+
+      if (!instanceAcquired) {
+        this.logger.warn(
+          `Instância ${automation.instanceId} ocupada por outra automação. Execução ${automationId} adiada.`,
+        );
+        if (!isManual) {
+          await this.enqueueDelayedInstanceRetry(automationId, tenantId);
+        }
+        return {
+          success: false,
+          message: 'Instância WhatsApp ocupada por outra automação em andamento.',
+          status: ExecutionStatus.FAILED,
+        };
+      }
+      instanceLockKey = candidateInstanceLockKey;
+
+      // 3. Validação de Limite Diário da Automação e Cota Global da Instância (Publication)
+      const startOfDay = getStartOfDayInZone(tenantTimezone);
 
       const executionsToday = await this.prisma.automationExecution.count({
         where: {
@@ -159,7 +207,75 @@ export class AutomationsExecutorService {
         };
       }
 
-      // 4. Validação da Instância WhatsApp (com ressincronização ao vivo antes de abortar)
+      const instanceLimitInfo = computeEffectiveInstanceDailyLimit(
+        automation.instance,
+      );
+      const instanceMessagesSentToday =
+        typeof this.prisma.publication?.count === 'function'
+          ? await this.prisma.publication.count({
+              where: {
+                status: PublicationStatus.SUCCESS,
+                sentAt: { gte: startOfDay },
+                group: {
+                  instanceId: automation.instanceId,
+                  tenantId,
+                },
+              },
+            })
+          : 0;
+
+      const remainingInstanceQuota = Math.max(
+        0,
+        instanceLimitInfo.effectiveDailyLimit - instanceMessagesSentToday,
+      );
+
+      if (remainingInstanceQuota <= 0) {
+        this.logger.warn(
+          `Instância ${automation.instance.displayName} atingiu o limite diário seguro de mensagens (${instanceMessagesSentToday}/${instanceLimitInfo.effectiveDailyLimit}).`,
+        );
+        if (!isManual) {
+          await this.updateNextExecution(automation);
+        }
+        return {
+          success: false,
+          message: `Limite diário de mensagens da instância atingido (${instanceMessagesSentToday}/${instanceLimitInfo.effectiveDailyLimit}).`,
+          status: ExecutionStatus.FAILED,
+        };
+      }
+
+      // 4. Validação do Circuit Breaker e da Instância WhatsApp (com ressincronização ao vivo)
+      const circuitOpenUntilDate = automation.instance.circuitOpenUntil
+        ? new Date(automation.instance.circuitOpenUntil)
+        : null;
+
+      if (circuitOpenUntilDate && circuitOpenUntilDate.getTime() > Date.now()) {
+        const reasonSuffix = automation.instance.lastErrorReason
+          ? ` Motivo anterior: ${automation.instance.lastErrorReason}`
+          : '';
+        this.logger.warn(
+          `Circuit Breaker aberto para instância ${automation.instance.displayName} até ${circuitOpenUntilDate.toISOString()}.${reasonSuffix}`,
+        );
+
+        const execution = await this.prisma.automationExecution.create({
+          data: {
+            tenantId,
+            automationId,
+            status: ExecutionStatus.SKIPPED_INSTANCE_OFFLINE,
+            errorMessage: `Circuit Breaker da instância '${automation.instance.displayName}' aberto até ${circuitOpenUntilDate.toISOString()}.${reasonSuffix}`,
+            completedAt: new Date(),
+          },
+        });
+
+        await this.updateNextExecution(automation);
+
+        return {
+          success: false,
+          executionId: execution.id,
+          message: `Circuit Breaker da instância ativo até ${circuitOpenUntilDate.toISOString()}.`,
+          status: ExecutionStatus.SKIPPED_INSTANCE_OFFLINE,
+        };
+      }
+
       if (automation.instance.status !== InstanceStatus.CONNECTED) {
         let liveConnected = false;
 
@@ -179,6 +295,9 @@ export class AutomationsExecutorService {
                 data: {
                   status: InstanceStatus.CONNECTED,
                   lastConnectedAt: new Date(),
+                  consecutiveSendFailures: 0,
+                  circuitOpenUntil: null,
+                  lastErrorReason: null,
                 },
               });
               automation.instance.status = InstanceStatus.CONNECTED;
@@ -476,10 +595,16 @@ export class AutomationsExecutorService {
       }
 
       // 8. Criação do Registro de Execução, Snapshot e Link
-      const targetGroups = this.selectTargetGroups(
+      let targetGroups = this.selectTargetGroups(
         automation.groups,
         automation.dispatchStrategy,
       );
+      if (targetGroups.length > remainingInstanceQuota) {
+        this.logger.warn(
+          `Limitando grupos da execução ${automationId} de ${targetGroups.length} para ${remainingInstanceQuota} visando respeitar a cota diária da instância ${automation.instance.displayName}.`,
+        );
+        targetGroups = targetGroups.slice(0, remainingInstanceQuota);
+      }
       const totalDestinations = targetGroups.length;
 
       const publicBaseUrl = (
@@ -536,9 +661,11 @@ export class AutomationsExecutorService {
         },
       });
 
-      // 9. Publicação Multi-Grupo Individualizada (respeitando randomização de disparo configurada)
+      // 9. Publicação Multi-Grupo Individualizada (respeitando cooldown global, jitter e Circuit Breaker)
       let successCount = 0;
       let failureCount = 0;
+      let circuitAbortMessage: string | null = null;
+      const minIntervalSeconds = automation.instance.minIntervalSeconds ?? 15;
 
       for (let i = 0; i < targetGroups.length; i++) {
         const autoGroup = targetGroups[i];
@@ -558,27 +685,75 @@ export class AutomationsExecutorService {
             throw new Error(`Grupo '${group.name}' está inativo.`);
           }
 
-          // Formatação do preço
-          const formattedPrice = `R$ ${selectedProduct.price.toFixed(2).replace('.', ',')}`;
-
-          const sendResult = await this.whatsappGroupsService.sendMediaToGroup(
-            tenantId,
-            group.id,
-            {
-              mediaUrl: selectedProduct.imageUrl,
-              captionTemplate: automation.captionTemplate || undefined,
-              captionParams: {
-                titulo: selectedProduct.title,
-                preco: formattedPrice,
-                link_afiliado: shortLinkUrl,
-                link_grupo: permanentGroupUrl,
-                cupom: matchedCoupon?.vars.cupom,
-                cupom_desconto: matchedCoupon?.vars.cupom_desconto,
-                preco_com_cupom: matchedCoupon?.vars.preco_com_cupom,
-                cupom_validade: matchedCoupon?.vars.cupom_validade,
-              },
-            },
+          await this.waitForInstanceCooldown(
+            automation.instanceId,
+            minIntervalSeconds,
           );
+
+          // Formatação do preço e nome de arquivo dinâmico por plataforma/produto
+          const formattedPrice = `R$ ${selectedProduct.price.toFixed(2).replace('.', ',')}`;
+          const platformPrefix =
+            automation.platform === AffiliatePlatform.MERCADO_LIVRE ? 'ml' : 'shopee';
+          const safeItemSlug = (selectedProduct.itemId || 'item')
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .slice(0, 24);
+          const dynamicFileName = `oferta-${platformPrefix}-${safeItemSlug}`;
+
+          let sendResult: any;
+          try {
+            sendResult = await this.whatsappGroupsService.sendMediaToGroup(
+              tenantId,
+              group.id,
+              {
+                mediaUrl: selectedProduct.imageUrl,
+                fileName: dynamicFileName,
+                captionTemplate: automation.captionTemplate || undefined,
+                captionParams: {
+                  titulo: selectedProduct.title,
+                  preco: formattedPrice,
+                  link_afiliado: shortLinkUrl,
+                  link_grupo: permanentGroupUrl,
+                  cupom: matchedCoupon?.vars.cupom,
+                  cupom_desconto: matchedCoupon?.vars.cupom_desconto,
+                  preco_com_cupom: matchedCoupon?.vars.preco_com_cupom,
+                  cupom_validade: matchedCoupon?.vars.cupom_validade,
+                },
+              },
+            );
+          } finally {
+            if (
+              minIntervalSeconds > 0 &&
+              typeof this.queueService?.setInstanceCooldown === 'function'
+            ) {
+              await this.queueService.setInstanceCooldown(
+                automation.instanceId,
+                minIntervalSeconds,
+              );
+            }
+          }
+
+          // Envio bem-sucedido zera contador de falhas do Circuit Breaker se havia histórico anterior
+          if (
+            (automation.instance.consecutiveSendFailures || 0) > 0 ||
+            automation.instance.circuitOpenUntil
+          ) {
+            if (typeof this.prisma.whatsAppInstance?.update === 'function') {
+              await this.prisma.whatsAppInstance
+                .update({
+                  where: { id: automation.instanceId },
+                  data: {
+                    consecutiveSendFailures: 0,
+                    circuitOpenUntil: null,
+                    lastErrorReason: null,
+                  },
+                })
+                .catch(() => undefined);
+            }
+            automation.instance.consecutiveSendFailures = 0;
+            automation.instance.circuitOpenUntil = null;
+            automation.instance.lastErrorReason = null;
+          }
 
           await this.prisma.publication.update({
             where: { id: publication.id },
@@ -604,13 +779,79 @@ export class AutomationsExecutorService {
           });
 
           failureCount++;
+
+          const classification = classifyEvolutionSendError(pubErr);
+          if (classification.abortBatch) {
+            const nextFailures =
+              (automation.instance.consecutiveSendFailures || 0) + 1;
+            const cooldownMinutes = computeCircuitCooldownMinutes(nextFailures);
+            const circuitOpenUntil = new Date(
+              Date.now() + cooldownMinutes * 60 * 1000,
+            );
+            const sanitizedReason = classification.reason.slice(0, 480);
+
+            if (typeof this.prisma.whatsAppInstance?.update === 'function') {
+              await this.prisma.whatsAppInstance
+                .update({
+                  where: { id: automation.instanceId },
+                  data: {
+                    consecutiveSendFailures: nextFailures,
+                    circuitOpenUntil,
+                    lastErrorReason: sanitizedReason,
+                    ...(classification.markInstanceDisconnected
+                      ? { status: InstanceStatus.DISCONNECTED }
+                      : {}),
+                  },
+                })
+                .catch(() => undefined);
+            }
+
+            automation.instance.consecutiveSendFailures = nextFailures;
+            automation.instance.circuitOpenUntil = circuitOpenUntil;
+            automation.instance.lastErrorReason = sanitizedReason;
+
+            circuitAbortMessage = `Circuit Breaker acionado (${classification.scope}, cooldown ${cooldownMinutes}min): abortados ${targetGroups.length - 1 - i} envio(s) restante(s). Motivo: ${sanitizedReason}`;
+            this.logger.error(circuitAbortMessage);
+            break;
+          }
+
+          if (classification.scope === 'GROUP_PERM_ERROR' && group.isActive) {
+            const blockedReason = classification.reason.slice(0, 250);
+            if (typeof this.prisma.whatsAppGroup?.update === 'function') {
+              await this.prisma.whatsAppGroup
+                .update({
+                  where: { id: group.id },
+                  data: {
+                    isActive: false,
+                    sendBlockedReason: blockedReason,
+                  },
+                })
+                .catch(() => undefined);
+            }
+            group.isActive = false;
+            group.sendBlockedReason = blockedReason;
+            this.logger.warn(
+              `Grupo '${group.name}' (${group.jid}) desativado automaticamente após erro permanente: ${blockedReason}`,
+            );
+          }
         }
 
-        // Jitter / Delay entre envios para evitar banimento do WhatsApp
-        if (automation.jitterSeconds > 0 && i < targetGroups.length - 1) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, automation.jitterSeconds * 1000),
-          );
+        // Jitter humanizado aleatório entre grupos + macro-pausa periódica em lotes (Item 2 Anti-Ban)
+        if (i < targetGroups.length - 1) {
+          const delayPlan = computeHumanizedGroupDelayMs({
+            baseJitterSeconds: automation.jitterSeconds,
+            minIntervalSeconds,
+            sentIndex: i,
+            totalGroups: targetGroups.length,
+          });
+          if (delayPlan.totalDelayMs > 0) {
+            if (delayPlan.macroPauseMs > 0) {
+              this.logger.debug(
+                `Aplicando macro-pausa anti-ban após lote de grupos (${delayPlan.macroPauseMs}ms + jitter ${delayPlan.jitterMs}ms)`,
+              );
+            }
+            await this.sleep(delayPlan.totalDelayMs);
+          }
         }
       }
 
@@ -628,6 +869,7 @@ export class AutomationsExecutorService {
           status: finalStatus,
           successCount,
           failureCount,
+          ...(circuitAbortMessage ? { errorMessage: circuitAbortMessage } : {}),
           completedAt: new Date(),
         },
       });
@@ -645,12 +887,122 @@ export class AutomationsExecutorService {
       return {
         success: finalStatus !== ExecutionStatus.FAILED,
         executionId: execution.id,
-        message: `Execução concluída com status: ${finalStatus}. Sucesso: ${successCount}/${totalDestinations}`,
+        message:
+          circuitAbortMessage && successCount === 0
+            ? circuitAbortMessage
+            : `Execução concluída com status: ${finalStatus}. Sucesso: ${successCount}/${totalDestinations}`,
         status: finalStatus,
       };
     } finally {
-      // 11. Liberação do Lock Distribuído
+      // 11. Liberação dos Locks Distribuídos (Instância + Automação)
+      if (instanceLockKey) {
+        await this.queueService
+          .releaseLock(instanceLockKey, instanceLockToken)
+          .catch(() => false);
+      }
       await this.queueService.releaseLock(lockKey, lockToken);
+    }
+  }
+
+  protected async sleep(ms: number): Promise<void> {
+    if (ms <= 0 || this.shuttingDown) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      timer.unref?.();
+    });
+  }
+
+  async waitForInstanceCooldown(
+    instanceId: string,
+    minIntervalSeconds: number,
+  ): Promise<number> {
+    if (
+      this.shuttingDown ||
+      !minIntervalSeconds ||
+      minIntervalSeconds <= 0 ||
+      typeof this.queueService?.getInstanceCooldownUntil !== 'function'
+    ) {
+      return 0;
+    }
+
+    const cooldownUntilMs =
+      await this.queueService.getInstanceCooldownUntil(instanceId);
+    if (!cooldownUntilMs) {
+      return 0;
+    }
+
+    const waitMs = cooldownUntilMs - Date.now();
+    if (waitMs > 0) {
+      this.logger.debug(
+        `Aguardando cooldown global da instância ${instanceId}: ${waitMs}ms`,
+      );
+      await this.sleep(waitMs);
+      return waitMs;
+    }
+
+    return 0;
+  }
+
+  private async acquireInstanceLockWithWait(
+    lockKey: string,
+    lockToken: string,
+    ttlSeconds: number,
+    maxWaitMs: number,
+  ): Promise<boolean> {
+    const start = Date.now();
+    while (!this.shuttingDown) {
+      const acquired = await this.queueService.acquireLock(
+        lockKey,
+        lockToken,
+        ttlSeconds,
+      );
+      if (acquired) {
+        return true;
+      }
+
+      if (this.shuttingDown || Date.now() - start >= maxWaitMs) {
+        return false;
+      }
+
+      await this.sleep(100 + Math.floor(Math.random() * 40));
+    }
+    return false;
+  }
+
+  private async enqueueDelayedInstanceRetry(
+    automationId: string,
+    tenantId: string,
+  ): Promise<void> {
+    try {
+      if (
+        this.shuttingDown ||
+        typeof this.queueService?.getAutomationQueue !== 'function'
+      ) {
+        return;
+      }
+      const queue = this.queueService.getAutomationQueue();
+      const delayMs = 20000 + Math.floor(Math.random() * 10000);
+      const bucket = Math.floor(Date.now() / 15000);
+      await queue.add(
+        'execute-automation',
+        {
+          automationId,
+          tenantId,
+          isManual: false,
+          triggeredAt: new Date().toISOString(),
+          reason: 'instance_lock_retry',
+        },
+        {
+          jobId: `retry-instance-lock-${automationId}-${bucket}`,
+          delay: delayMs,
+          removeOnComplete: 50,
+          removeOnFail: 100,
+        },
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao reagendar retry por contenção de instância (${automationId}): ${err.message}`,
+      );
     }
   }
 
@@ -668,6 +1020,7 @@ export class AutomationsExecutorService {
           timezone: automation.tenant?.timezone || 'America/Sao_Paulo',
         },
         new Date(),
+        { applyMicroVariation: true },
       );
 
       await this.prisma.automation.update({
@@ -681,32 +1034,6 @@ export class AutomationsExecutorService {
       this.logger.error(
         `Erro ao atualizar nextExecutionAt da automação ${automation.id}: ${err.message}`,
       );
-    }
-  }
-
-  private getStartOfDayInZone(timeZone: string): Date {
-    const now = new Date();
-    try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hourCycle: 'h23',
-      });
-      const parts = formatter.formatToParts(now);
-      const map: Record<string, string> = {};
-      for (const p of parts) map[p.type] = p.value;
-      const elapsedMs =
-        ((Number.parseInt(map.hour || '0', 10) % 24) * 3600 +
-          Number.parseInt(map.minute || '0', 10) * 60 +
-          Number.parseInt(map.second || '0', 10)) *
-        1000;
-      return new Date(now.getTime() - elapsedMs);
-    } catch {
-      const fallback = new Date(now);
-      fallback.setHours(0, 0, 0, 0);
-      return fallback;
     }
   }
 

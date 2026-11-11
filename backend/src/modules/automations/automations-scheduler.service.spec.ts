@@ -245,5 +245,56 @@ describe('AutomationsSchedulerService - Unit Tests', () => {
         data: { nextExecutionAt: dueDate },
       });
     });
+
+    it('deve aplicar micro-variação aleatória (±12%) no nextExecutionAt respeitando janela e dias permitidos', () => {
+      const baseDate = new Date('2026-11-10T10:00:00');
+      const config = {
+        frequencyMinutes: 60,
+        windowStartTime: '08:00',
+        windowEndTime: '22:00',
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+      };
+
+      const minVar = scheduler.calculateNextExecution(config, baseDate, {
+        applyMicroVariation: true,
+        randomFn: () => 0,
+      });
+      const maxVar = scheduler.calculateNextExecution(config, baseDate, {
+        applyMicroVariation: true,
+        randomFn: () => 1,
+      });
+
+      const minDiffMins = (minVar.getTime() - baseDate.getTime()) / 60000;
+      const maxDiffMins = (maxVar.getTime() - baseDate.getTime()) / 60000;
+
+      // 60m ± 12% => [52.8m, 67.2m]
+      expect(minDiffMins).toBeCloseTo(52.8, 1);
+      expect(maxDiffMins).toBeCloseTo(67.2, 1);
+      expect(
+        scheduler.isWithinScheduleWindow(config, minVar),
+      ).toBe(true);
+      expect(
+        scheduler.isWithinScheduleWindow(config, maxVar),
+      ).toBe(true);
+    });
+
+    it('nunca deve agendar fora da janela permitida mesmo com micro-variação positiva perto do fim do dia', () => {
+      // 21:15 com frequência 60m + 12% iria para ~22:22 -> deve respeitar janela 08:00-22:00 avançando para amanhã
+      const nearEnd = new Date('2026-11-10T21:15:00');
+      const config = {
+        frequencyMinutes: 60,
+        windowStartTime: '08:00',
+        windowEndTime: '22:00',
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+      };
+
+      const next = scheduler.calculateNextExecution(config, nearEnd, {
+        applyMicroVariation: true,
+        randomFn: () => 0.9,
+      });
+
+      expect(next.getDate()).toBe(nearEnd.getDate() + 1);
+      expect(scheduler.isWithinScheduleWindow(config, next)).toBe(true);
+    });
   });
 });

@@ -119,7 +119,7 @@ describe('Group Permanent Links & Dispatch Randomization (E2E)', () => {
 
     await prisma.whatsAppInstance.update({
       where: { id: tenantA_instanceId },
-      data: { status: InstanceStatus.CONNECTED },
+      data: { status: InstanceStatus.CONNECTED, minIntervalSeconds: 0 },
     });
 
     const g1 = await prisma.whatsAppGroup.create({

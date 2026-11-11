@@ -19,6 +19,17 @@ export class AutomationsProcessor implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (
+      (process.env.NODE_ENV === 'test' &&
+        process.env.ENABLE_AUTOMATION_WORKER_IN_TESTS !== 'true') ||
+      process.env.DISABLE_AUTOMATION_WORKER === 'true'
+    ) {
+      this.logger.log(
+        'BullMQ Worker de automações desabilitado neste ambiente (test/flag).',
+      );
+      return;
+    }
+
     const redisClient =
       typeof this.queueService.getWorkerRedisClient === 'function'
         ? this.queueService.getWorkerRedisClient()
@@ -58,12 +69,20 @@ export class AutomationsProcessor implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Job ${job?.id} falhou: ${err.message}`, err.stack);
     });
 
+    this.worker.on('error', (err: Error) => {
+      this.logger.warn(`Erro no BullMQ Worker de automações: ${err.message}`);
+    });
+
     this.logger.log('BullMQ Worker de automações inicializado com sucesso.');
   }
 
   async onModuleDestroy() {
+    this.executorService.markShuttingDown?.();
     if (this.worker) {
-      await this.worker.close();
+      await Promise.race([
+        this.worker.close(true).catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
       this.logger.log('BullMQ Worker de automações finalizado.');
     }
   }

@@ -89,6 +89,8 @@ export class WhatsAppGroupsService {
       const originalJid = group.id.trim();
       const groupName = group.subject || 'Grupo sem nome';
       const participantCount = typeof group.size === 'number' ? group.size : 0;
+      const isAnnounceOnly = Boolean(group.announce);
+      const isRestricted = Boolean(group.restrict);
 
       const upserted = await this.prisma.whatsAppGroup.upsert({
         where: {
@@ -104,11 +106,15 @@ export class WhatsAppGroupsService {
           name: groupName,
           participantCount,
           isActive: true,
+          isAnnounceOnly,
+          isRestricted,
           lastSyncedAt: new Date(),
         },
         update: {
           name: groupName,
           participantCount,
+          isAnnounceOnly,
+          isRestricted,
           lastSyncedAt: new Date(),
         },
       });
@@ -116,13 +122,16 @@ export class WhatsAppGroupsService {
       syncedGroups.push(upserted);
     }
 
+    const announceOnlyCount = syncedGroups.filter((g) => g.isAnnounceOnly).length;
+
     this.logger.log(
-      `Sincronizados ${syncedGroups.length} grupos para a instância ${instance.instanceName} do tenant ${tenantId}`,
+      `Sincronizados ${syncedGroups.length} grupos (${announceOnlyCount} somente admins) para a instância ${instance.instanceName} do tenant ${tenantId}`,
     );
 
     return {
       success: true,
       count: syncedGroups.length,
+      announceOnlyCount,
       groups: syncedGroups,
     };
   }
@@ -138,6 +147,8 @@ export class WhatsAppGroupsService {
       mediaUrl: string;
       captionParams: CaptionTemplateParams;
       captionTemplate?: string;
+      fileName?: string;
+      delay?: number;
     },
   ) {
     if (!params.mediaUrl) {
@@ -177,6 +188,16 @@ export class WhatsAppGroupsService {
       params.captionParams,
     );
 
+    const dynamicFileName = this.buildDynamicMediaFileName(
+      params.fileName,
+      params.captionParams.titulo,
+      params.mediaUrl,
+    );
+    const sendDelayMs =
+      typeof params.delay === 'number' && params.delay >= 0
+        ? Math.round(params.delay)
+        : 900 + Math.floor(Math.random() * 1100);
+
     const result = await this.evolutionClient.sendMedia(
       instance.server.baseUrl,
       apiKey,
@@ -185,7 +206,8 @@ export class WhatsAppGroupsService {
         number: group.jid,
         media: params.mediaUrl,
         caption,
-        fileName: 'oferta-shopee.jpg',
+        fileName: dynamicFileName,
+        ...(sendDelayMs > 0 ? { delay: sendDelayMs } : {}),
       },
     );
 
@@ -195,6 +217,37 @@ export class WhatsAppGroupsService {
       groupName: group.name,
       result,
     };
+  }
+
+  private buildDynamicMediaFileName(
+    explicitFileName: string | undefined,
+    title: string,
+    mediaUrl: string,
+  ): string {
+    const extMatch = mediaUrl.split('?')[0].match(/\.(jpg|jpeg|png|webp)$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
+
+    if (explicitFileName && explicitFileName.trim().length > 0) {
+      const cleaned = explicitFileName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 72);
+      if (cleaned) {
+        return cleaned.includes('.') ? cleaned : `${cleaned}.${ext}`;
+      }
+    }
+
+    const titleSlug = (title || 'oferta')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32) || 'oferta';
+    const suffix = Math.random().toString(36).slice(2, 6);
+    return `oferta-${titleSlug}-${suffix}.${ext}`;
   }
 
   /**
@@ -319,6 +372,12 @@ export class WhatsAppGroupsService {
         inviteUrl: dto.inviteUrl !== undefined ? dto.inviteUrl.trim() : group.inviteUrl,
         maxParticipants:
           dto.maxParticipants !== undefined ? dto.maxParticipants : group.maxParticipants,
+        ...(dto.isActive !== undefined
+          ? {
+              isActive: dto.isActive,
+              ...(dto.isActive ? { sendBlockedReason: null } : {}),
+            }
+          : {}),
       },
     });
   }

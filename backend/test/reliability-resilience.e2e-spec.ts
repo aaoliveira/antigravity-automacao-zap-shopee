@@ -7,6 +7,8 @@ import { CryptoVaultService } from '../src/modules/crypto-vault/crypto-vault.ser
 import { AutomationsExecutorService } from '../src/modules/automations/automations-executor.service';
 import { ShopeeClientService } from '../src/modules/shopee/shopee.client';
 import { EvolutionClient } from '../src/modules/evolution/evolution.client';
+import { WhatsAppInstancesService } from '../src/modules/evolution/whatsapp-instances.service';
+import { DashboardService } from '../src/modules/dashboard/dashboard.service';
 import { InstanceStatus, ExecutionStatus, PublicationStatus } from '@prisma/client';
 
 describe('Reliability, Resilience & Fault Tolerance Tests', () => {
@@ -84,6 +86,7 @@ describe('Reliability, Resilience & Fault Tolerance Tests', () => {
         instanceName: `inst_resilience_${Date.now()}`,
         displayName: 'Instância Resiliência',
         status: InstanceStatus.CONNECTED,
+        minIntervalSeconds: 0,
       },
     });
     instanceId = instance.id;
@@ -359,6 +362,98 @@ describe('Reliability, Resilience & Fault Tolerance Tests', () => {
 
       expect(pubFailed).toBeDefined();
       expect(pubFailed?.errorMessage).toMatch(/Contact is not in group/i);
+
+      // Grupo com erro permanente 403 ("Contact is not in group") deve ser auto-desativado com motivo registrado
+      const updatedFailedGroup = await prisma.whatsAppGroup.findUnique({
+        where: { id: pubFailed!.groupId },
+      });
+      expect(updatedFailedGroup?.isActive).toBe(false);
+      expect(updatedFailedGroup?.sendBlockedReason).toMatch(/Contact is not in group/i);
+
+      // Restaura grupo para limpeza do próximo cenário
+      await prisma.whatsAppGroup.update({
+        where: { id: pubFailed!.groupId },
+        data: { isActive: true, sendBlockedReason: null },
+      });
+
+      jest.restoreAllMocks();
+    });
+  });
+
+  // ============================================================================
+  // 5B. CIRCUIT BREAKER EVOLUTION API & ALERTA NO DASHBOARD (ANTI-BAN ITEM 3)
+  // ============================================================================
+  describe('Circuit Breaker da Evolution API & Proteção de Lote', () => {
+    it('Deve abortar envios restantes em erro 429, expor alerta no Dashboard e bloquear até reset', async () => {
+      const dashboardService = app.get(DashboardService);
+      const instancesService = app.get(WhatsAppInstancesService);
+
+      const grp3 = await prisma.whatsAppGroup.create({
+        data: {
+          tenantId,
+          instanceId,
+          jid: '1203633333@g.us',
+          name: 'Grupo Resiliência 3',
+          participantCount: 60,
+          isActive: true,
+        },
+      });
+      await prisma.automationGroup.create({
+        data: { automationId, groupId: grp3.id },
+      });
+
+      const rateLimitProduct = {
+        itemId: `item_cb_${Date.now()}`,
+        title: 'Monitor Gamer 144Hz',
+        price: 799.9,
+        imageUrl: 'https://cf.shopee.com.br/file/monitor.jpg',
+        productUrl: 'https://shopee.com.br/product/monitor',
+        commissionRate: 0.1,
+      };
+
+      jest.spyOn(shopeeClient, 'searchProducts').mockResolvedValue({
+        products: [rateLimitProduct],
+        pageInfo: { page: 1, limit: 20, hasNextPage: false },
+      });
+      jest
+        .spyOn(shopeeClient, 'generateShortLink')
+        .mockResolvedValue('https://s.shopee.com.br/cb-test');
+
+      // Erro fatal de rate-limit no 1º grupo -> NÃO deve tentar enviar para grupos 2 e 3
+      const sendSpy = jest
+        .spyOn(evolutionClient, 'sendMedia')
+        .mockRejectedValue(
+          new Error('Evolution API retornou status 429: rate-overlimit'),
+        );
+
+      const cbResult = await executorService.execute(automationId, tenantId, true);
+      expect(cbResult.success).toBe(false);
+      expect(cbResult.status).toBe(ExecutionStatus.FAILED);
+      expect(cbResult.message).toContain('Circuit Breaker acionado');
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+
+      // Instância registrada em cooldown com alerta no Dashboard
+      const summary = await dashboardService.getSummary(tenantId);
+      expect(summary.alerts.openCircuits).toHaveLength(1);
+      expect(summary.alerts.openCircuits[0].id).toBe(instanceId);
+      expect(summary.alerts.openCircuits[0].consecutiveSendFailures).toBe(1);
+      expect(summary.alerts.openCircuits[0].lastErrorReason).toContain('rate-overlimit');
+
+      // Nova execução imediata deve ser bloqueada antes de consultar Shopee/Evolution
+      sendSpy.mockClear();
+      const blockedByCb = await executorService.execute(automationId, tenantId, true);
+      expect(blockedByCb.success).toBe(false);
+      expect(blockedByCb.status).toBe(ExecutionStatus.SKIPPED_INSTANCE_OFFLINE);
+      expect(blockedByCb.message).toContain('Circuit Breaker');
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      // Reset manual limpa Circuit Breaker e alerta no Dashboard
+      const resetRes = await instancesService.resetCircuitBreaker(tenantId, instanceId);
+      expect(resetRes.isCircuitOpen).toBe(false);
+      expect(resetRes.consecutiveSendFailures).toBe(0);
+
+      const summaryAfterReset = await dashboardService.getSummary(tenantId);
+      expect(summaryAfterReset.alerts.openCircuits).toHaveLength(0);
 
       jest.restoreAllMocks();
     });

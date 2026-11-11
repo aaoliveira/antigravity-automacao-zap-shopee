@@ -92,6 +92,8 @@
 | `POST` | `/api/whatsapp-instances` | Cria instância no servidor Evolution e gera QR Code | JWT | `201`, `400` |
 | `GET` | `/api/whatsapp-instances/:id/qrcode` | Obtém QR Code atualizado em Base64 | JWT | `200`, `404` |
 | `GET` | `/api/whatsapp-instances/:id/status` | Consulta estado em tempo real (`open`, `close`) | JWT | `200`, `404` |
+| `PATCH` | `/api/whatsapp-instances/:id/safety-settings` | Atualiza limites anti-ban (`dailyMessageLimit`, `minIntervalSeconds`, `warmUpEnabled`) | JWT | `200`, `400`, `404` |
+| `POST` | `/api/whatsapp-instances/:id/reset-circuit` | Reabre/reseta manualmente o Circuit Breaker da instância após verificação | JWT | `200`, `404` |
 | `POST` | `/api/whatsapp-instances/:id/logout` | Realiza logout da instância no WhatsApp | JWT | `200`, `400` |
 | `DELETE` | `/api/whatsapp-instances/:id` | Exclui instância do servidor e do banco local | JWT | `200`, `404` |
 
@@ -102,7 +104,8 @@
 | Método | Rota | Descrição | Auth | Códigos HTTP |
 | :---: | :--- | :--- | :---: | :---: |
 | `GET` | `/api/whatsapp-groups` | Lista grupos sincronizados com busca por nome | JWT | `200` |
-| `POST` | `/api/whatsapp-groups/sync/:instanceId`| Força sincronização de grupos via Evolution API | JWT | `200`, `400` |
+| `POST` | `/api/whatsapp-groups/sync/:instanceId`| Força sincronização de grupos via Evolution API (incluindo `isAnnounceOnly`/`isRestricted`) | JWT | `200`, `400` |
+| `PATCH` | `/api/whatsapp-groups/:id` | Atualiza convite, lotação máxima ou status `isActive` (reativando grupos bloqueados) | JWT | `200`, `400`, `404` |
 
 ---
 

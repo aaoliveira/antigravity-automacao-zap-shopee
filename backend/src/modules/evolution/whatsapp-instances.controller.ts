@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Param,
   Body,
@@ -10,7 +11,10 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { WhatsAppInstancesService } from './whatsapp-instances.service';
-import { CreateWhatsAppInstanceDto } from './dto/evolution.dto';
+import {
+  CreateWhatsAppInstanceDto,
+  UpdateInstanceSafetySettingsDto,
+} from './dto/evolution.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantId } from '../../common/decorators/current-user.decorator';
 
@@ -57,6 +61,23 @@ export class WhatsAppInstancesController {
   @HttpCode(HttpStatus.OK)
   async logout(@TenantId() tenantId: string, @Param('id') id: string) {
     const data = await this.service.logout(tenantId, id);
+    return { success: true, data };
+  }
+
+  @Patch(':id/safety-settings')
+  async updateSafetySettings(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateInstanceSafetySettingsDto,
+  ) {
+    const data = await this.service.updateSafetySettings(tenantId, id, dto);
+    return { success: true, data };
+  }
+
+  @Post(':id/reset-circuit')
+  @HttpCode(HttpStatus.OK)
+  async resetCircuit(@TenantId() tenantId: string, @Param('id') id: string) {
+    const data = await this.service.resetCircuitBreaker(tenantId, id);
     return { success: true, data };
   }
 

@@ -141,3 +141,12 @@ Todos os Requisitos Funcionais (RF-01 a RF-16) possuem critérios de aceite obje
 - [x] **AC-RF17-02:** Na Alternativa B (tela estilo protótipo no tema claro ShopeeZap), tag, cookie (com expiração exibida em 14 dias) e chave de gateway são cifrados com AES-256-GCM, mascarados em todas as respostas e protegidos por validação anti-SSRF em `partnerGatewayUrl`; o teste de conversão retorna status transparente (`OFFICIAL_CONTRACT_REQUIRED`) quando nenhum gateway homologado é configurado.
 - [x] **AC-RF17-03:** Na Alternativa A (100% oficial via Mercado Livre Developers OAuth 2.0), o fluxo gera URL oficial `auth.mercadolivre.com.br/authorization` com `state` assinado HMAC-SHA256 anti-CSRF, consulta `/sites/MLB/search` retornando `sellerName` para matching de cupons e valida links `meli.la` na fila de ofertas.
 - [x] **AC-RF17-04:** A plataforma `MERCADO_LIVRE` integra-se aos módulos de Cupons e Automações (disparando ofertas com link `meli.la`, cupom específico Mercado Livre e estratégia de randomização de grupos).
+
+---
+
+### RF-18: Blindagem Anti-Banimento WhatsApp / Evolution API (Itens 1–5)
+- [x] **AC-RF18-01 (Item 1):** Execuções concorrentes compartilhando a mesma instância WhatsApp são serializadas por lock global (`lock:instance:<id>`), respeitam cooldown global entre envios (`minIntervalSeconds`) e contam mensagens reais de `Publication` para impor teto diário (+ Warm-up progressivo).
+- [x] **AC-RF18-02 (Item 2):** Disparos multi-grupo utilizam jitter aleatório (`[0,7x; 1,6x]`), macro-pausa periódica (`20s–45s`) a cada 5 grupos e micro-variação (`±12%`) no próximo agendamento dentro da janela horária permitida.
+- [x] **AC-RF18-03 (Item 3):** Erros fatais de sessão (`401`, `Connection Closed`, `logged out`, `banned`) ou `429`/rate-limit acionam o Circuit Breaker da Evolution API, abortando os demais envios do lote, aplicando cooldown exponencial (`15m -> 30m -> 60m`) e exibindo alerta no Dashboard com reset manual.
+- [x] **AC-RF18-04 (Item 4):** `EvolutionClient.formatCaption` suporta Spintax (`{a|b}`) sem colidir com `{titulo}` ou `{{cupom}}`, e `WhatsAppGroupsService.sendMediaToGroup` envia `fileName` dinâmico e `delay` oficial em ms (`https://docs.evolutionfoundation.com.br/evolution-api`).
+- [x] **AC-RF18-05 (Item 5):** Sincronização persiste `isAnnounceOnly`/`isRestricted`, erros permanentes de grupo auto-desativam apenas o grupo afetado, e a UI expõe proteção anti-ban, badges de permissão e Termômetro de Risco no Wizard.

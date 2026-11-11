@@ -91,6 +91,13 @@ export class EvolutionWebhookController {
           status: newStatus,
           qrCodeBase64: newStatus === InstanceStatus.CONNECTED ? null : instance.qrCodeBase64,
           lastConnectedAt: newStatus === InstanceStatus.CONNECTED ? new Date() : instance.lastConnectedAt,
+          ...(newStatus === InstanceStatus.CONNECTED
+            ? {
+                circuitOpenUntil: null,
+                consecutiveSendFailures: 0,
+                lastErrorReason: null,
+              }
+            : {}),
         },
       });
 

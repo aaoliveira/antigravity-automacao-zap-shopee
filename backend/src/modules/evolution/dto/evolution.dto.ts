@@ -4,6 +4,10 @@ import {
   IsUrl,
   IsOptional,
   IsUUID,
+  IsInt,
+  IsBoolean,
+  Min,
+  Max,
   Matches,
   MaxLength,
   MinLength,
@@ -72,6 +76,40 @@ export class CreateWhatsAppInstanceDto {
   @MinLength(2)
   @MaxLength(100)
   displayName: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  dailyMessageLimit?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(5)
+  @Max(300)
+  minIntervalSeconds?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  warmUpEnabled?: boolean;
+}
+
+export class UpdateInstanceSafetySettingsDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  dailyMessageLimit?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(5)
+  @Max(300)
+  minIntervalSeconds?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  warmUpEnabled?: boolean;
 }
 
 export class SendMediaDto {

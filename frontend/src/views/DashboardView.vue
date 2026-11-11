@@ -23,6 +23,35 @@
         </button>
       </div>
 
+      <!-- Alerta de Circuit Breaker Evolution API -->
+      <div
+        v-if="summary.alerts?.openCircuits?.length > 0"
+        data-testid="dashboard-circuit-alerts"
+        class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+      >
+        <div class="space-y-1">
+          <div class="flex items-center gap-2 text-rose-800 font-bold text-sm">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>Proteção Anti-Ban Ativada (Circuit Breaker Evolution API)</span>
+          </div>
+          <ul class="text-xs text-rose-700 space-y-1 pl-7 list-disc">
+            <li v-for="inst in summary.alerts.openCircuits" :key="inst.id">
+              <strong>{{ inst.displayName }}</strong> ({{ inst.status }}) —
+              <span v-if="inst.circuitOpenUntil">pausada até {{ formatDateTime(inst.circuitOpenUntil) }}</span>
+              <span v-if="inst.lastErrorReason"> • {{ inst.lastErrorReason }}</span>
+            </li>
+          </ul>
+        </div>
+        <router-link
+          to="/whatsapp"
+          class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shrink-0 self-start md:self-center"
+        >
+          Verificar no WhatsApp
+        </router-link>
+      </div>
+
       <!-- Cards de Métricas Reais -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- Automações Ativas -->
@@ -244,6 +273,7 @@ const summary = ref<any>({
   automations: { active: 0, paused: 0, total: 0 },
   instances: { connected: 0, total: 0 },
   publications: { success: 0, failed: 0, total: 0 },
+  alerts: { openCircuits: [] },
   recentExecutions: [],
 });
 const upcomingList = ref<any[]>([]);

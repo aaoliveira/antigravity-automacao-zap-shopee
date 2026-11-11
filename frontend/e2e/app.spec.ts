@@ -1208,4 +1208,216 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await expect(page.getByTestId('section-ml-alt-b')).toHaveCount(0);
     await expect(page.getByTestId('section-ml-alt-a')).toBeVisible();
   });
+
+  test('Anti-Ban Item 5: Alerta Circuit Breaker no Dashboard, Proteção/Warm-up de Instância, Badges de Grupo e Termômetro de Risco no Wizard', async ({ page }) => {
+    const instState = {
+      id: 'inst-antiban-1',
+      tenantId: 'tnt-1',
+      serverId: 'srv-1',
+      instanceName: 'zap-vip-01',
+      displayName: 'WhatsApp Principal VIP',
+      status: 'CONNECTED',
+      dailyMessageLimit: 100,
+      minIntervalSeconds: 15,
+      warmUpEnabled: true,
+      warmUpStageDays: 1,
+      effectiveDailyLimit: 20,
+      messagesSentToday: 18,
+      isCircuitOpen: true,
+      consecutiveSendFailures: 2,
+      circuitOpenUntil: new Date(Date.now() + 30 * 60_000).toISOString(),
+      lastErrorReason: 'Evolution API retornou status 429: rate-overlimit',
+      server: { id: 'srv-1', name: 'Evolution Principal', baseUrl: 'https://evo.exemplo.com' },
+      _count: { groups: 2 },
+    };
+
+    const groupsState = [
+      {
+        id: 'grp-admin-only',
+        instanceId: 'inst-antiban-1',
+        jid: '1203630111@g.us',
+        name: 'Grupo Ofertas Somente Admin',
+        participantCount: 250,
+        maxParticipants: 1024,
+        isActive: false,
+        isAnnounceOnly: true,
+        isRestricted: true,
+        sendBlockedReason: 'Contact is not in group (403)',
+        instance: { id: 'inst-antiban-1', displayName: 'WhatsApp Principal VIP' },
+      },
+      {
+        id: 'grp-normal',
+        instanceId: 'inst-antiban-1',
+        jid: '1203630222@g.us',
+        name: 'Grupo Ofertas Aberto',
+        participantCount: 120,
+        maxParticipants: 1024,
+        isActive: true,
+        isAnnounceOnly: false,
+        isRestricted: false,
+        sendBlockedReason: null,
+        instance: { id: 'inst-antiban-1', displayName: 'WhatsApp Principal VIP' },
+      },
+    ];
+
+    await page.route('**/api/dashboard/summary', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            automations: { active: 1, paused: 0, total: 1 },
+            instances: { connected: 1, total: 1 },
+            publications: { success: 18, failed: 1, total: 19 },
+            alerts: {
+              openCircuits: instState.isCircuitOpen
+                ? [
+                    {
+                      id: instState.id,
+                      displayName: instState.displayName,
+                      instanceName: instState.instanceName,
+                      status: instState.status,
+                      circuitOpenUntil: instState.circuitOpenUntil,
+                      consecutiveSendFailures: instState.consecutiveSendFailures,
+                      lastErrorReason: instState.lastErrorReason,
+                    },
+                  ]
+                : [],
+            },
+            recentExecutions: [],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/whatsapp-instances', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: [instState] }),
+      });
+    });
+
+    await page.route('**/api/whatsapp-instances/*/safety-settings', async (route) => {
+      const payload = route.request().postDataJSON();
+      instState.dailyMessageLimit = payload.dailyMessageLimit;
+      instState.minIntervalSeconds = payload.minIntervalSeconds;
+      instState.warmUpEnabled = payload.warmUpEnabled;
+      instState.effectiveDailyLimit = payload.warmUpEnabled ? Math.min(20, payload.dailyMessageLimit) : payload.dailyMessageLimit;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: instState }),
+      });
+    });
+
+    await page.route('**/api/whatsapp-instances/*/reset-circuit', async (route) => {
+      instState.isCircuitOpen = false;
+      instState.consecutiveSendFailures = 0;
+      instState.circuitOpenUntil = '';
+      instState.lastErrorReason = '';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: instState }),
+      });
+    });
+
+    await page.route('**/api/whatsapp-groups**', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON();
+        groupsState[0].isActive = Boolean(body.isActive);
+        if (body.isActive) groupsState[0].sendBlockedReason = null as any;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: groupsState[0] }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: groupsState }),
+      });
+    });
+
+    await page.route('**/api/shopee-credentials', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: 'cred-1', label: 'Shopee Principal', appId: '998877', isValid: true }],
+        }),
+      });
+    });
+
+    // Login e verifica alerta Circuit Breaker no Dashboard
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await expect(page.getByTestId('dashboard-circuit-alerts')).toBeVisible();
+    await expect(page.getByTestId('dashboard-circuit-alerts')).toContainText('WhatsApp Principal VIP');
+    await expect(page.getByTestId('dashboard-circuit-alerts')).toContainText('rate-overlimit');
+
+    // Navega para WhatsApp & Evolution e verifica cota, Warm-up e Reset Circuit Breaker
+    await page.click('nav a:has-text("WhatsApp")');
+    await expect(page).toHaveURL(/.*whatsapp/);
+
+    await expect(page.getByTestId('instance-daily-quota')).toContainText('18 / 20');
+    await expect(page.getByTestId('instance-circuit-badge')).toBeVisible();
+
+    await page.getByTestId('btn-open-safety-modal').click();
+    await page.getByTestId('input-safety-daily-limit').fill('150');
+    await page.getByTestId('input-safety-min-interval').fill('25');
+    await page.getByTestId('btn-save-safety-settings').click();
+    await expect(page.locator('text=Cooldown: 25s')).toBeVisible();
+
+    await page.getByTestId('btn-reset-circuit').click();
+    await expect(page.getByTestId('instance-circuit-badge')).toHaveCount(0);
+
+    // Aba Grupos: badge Apenas Admins, motivo do bloqueio e botão Reativar
+    await page.click('button:has-text("Grupos Sincronizados")');
+    await expect(page.getByTestId('group-announce-badge')).toContainText('Apenas Admins');
+    await expect(page.getByTestId('group-blocked-badge')).toBeVisible();
+    await page.getByTestId('btn-reactivate-group').click();
+    await expect(page.getByTestId('group-blocked-badge')).toHaveCount(0);
+
+    // Automações: Termômetro de risco dinâmico + Spintax helper no Wizard
+    await page.click('nav a:has-text("Automações")');
+    await expect(page).toHaveURL(/.*automations/);
+    await page.click('button:has-text("Nova Automação (Wizard)")');
+
+    // Etapa 1
+    await page.fill('input[placeholder="Ex: Ofertas Achadinhos Casa & Cozinha"]', 'Esteira Anti-Ban E2E');
+    await page.locator('select').first().selectOption('cred-1');
+    await page.click('button:has-text("Próxima Etapa")');
+
+    // Etapa 2
+    await page.locator('label:has-text("WhatsApp Principal VIP")').click();
+    await page.click('button:has-text("Próxima Etapa")');
+
+    // Etapa 3: verifica badge Apenas Admins nos grupos + insere Spintax Anti-Ban
+    await expect(page.locator('text=Apenas Admins').first()).toBeVisible();
+    await page.locator('label:has-text("Grupo Ofertas Aberto") input[type="checkbox"]').check();
+    await page.click('button:has-text("+ Inserir Spintax Anti-Ban")');
+    await page.click('button:has-text("Próxima Etapa")');
+
+    // Etapa 4: adiciona palavra-chave
+    await page.fill('input[placeholder*="fone bluetooth"]', 'fone');
+    await page.click('button:has-text("Adicionar")');
+    await page.click('button:has-text("Próxima Etapa")');
+
+    // Etapa 5: valida Termômetro Anti-Banimento dinâmico
+    await expect(page.getByTestId('antiban-risk-meter')).toContainText('Termômetro Anti-Banimento: Baixo Risco');
+    // Reduz jitter para 0 -> risco sobe para Risco Moderado / Alto Risco
+    const jitterInput = page.locator('input[type="number"][max="60"]');
+    await jitterInput.fill('0');
+    await expect(page.getByTestId('antiban-risk-meter')).toContainText('Risco Moderado');
+  });
 });

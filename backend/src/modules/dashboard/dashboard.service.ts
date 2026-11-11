@@ -19,6 +19,7 @@ export class DashboardService {
       successfulPublications,
       failedPublications,
       recentExecutions,
+      openCircuitInstances,
     ] = await Promise.all([
       this.prisma.automation.count({
         where: { tenantId, status: AutomationStatus.ACTIVE },
@@ -66,6 +67,28 @@ export class DashboardService {
           },
         },
       }),
+      this.prisma.whatsAppInstance.findMany({
+        where: {
+          tenantId,
+          OR: [
+            { circuitOpenUntil: { gt: new Date() } },
+            {
+              status: InstanceStatus.DISCONNECTED,
+              lastErrorReason: { not: null },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          displayName: true,
+          instanceName: true,
+          status: true,
+          circuitOpenUntil: true,
+          consecutiveSendFailures: true,
+          lastErrorReason: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
     ]);
 
     return {
@@ -83,6 +106,9 @@ export class DashboardService {
         success: successfulPublications,
         failed: failedPublications,
         total: successfulPublications + failedPublications,
+      },
+      alerts: {
+        openCircuits: openCircuitInstances,
       },
       recentExecutions,
     };

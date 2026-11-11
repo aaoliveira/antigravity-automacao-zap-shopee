@@ -251,17 +251,23 @@ model EvolutionServer {
 }
 
 model WhatsAppInstance {
-  id               String          @id @default(uuid()) @db.Uuid
-  tenantId         String          @db.Uuid
-  serverId         String          @db.Uuid
-  instanceName     String          @db.VarChar(100)
-  displayName      String          @db.VarChar(100)
-  status           InstanceStatus  @default(CREATED)
-  phoneConnected   String?         @db.VarChar(50)
-  qrCodeBase64     String?         @db.Text
-  lastConnectedAt  DateTime?       @db.Timestamptz
-  createdAt        DateTime        @default(now()) @db.Timestamptz
-  updatedAt        DateTime        @updatedAt @db.Timestamptz
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @db.Uuid
+  serverId           String          @db.Uuid
+  instanceName       String          @db.VarChar(100)
+  displayName        String          @db.VarChar(100)
+  status             InstanceStatus  @default(CREATED)
+  phoneConnected     String?         @db.VarChar(50)
+  qrCodeBase64       String?         @db.Text
+  lastConnectedAt    DateTime?       @db.Timestamptz
+  dailyMessageLimit       Int             @default(100)
+  minIntervalSeconds      Int             @default(15)
+  warmUpEnabled           Boolean         @default(false)
+  circuitOpenUntil        DateTime?       @db.Timestamptz
+  consecutiveSendFailures Int             @default(0)
+  lastErrorReason         String?         @db.VarChar(500)
+  createdAt               DateTime        @default(now()) @db.Timestamptz
+  updatedAt          DateTime        @updatedAt @db.Timestamptz
 
   tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   server           EvolutionServer @relation(fields: [serverId], references: [id], onDelete: Restrict)
@@ -283,6 +289,9 @@ model WhatsAppGroup {
   maxParticipants  Int               @default(1024)
   inviteUrl        String?           @db.VarChar(500)
   isActive         Boolean           @default(true)
+  isAnnounceOnly   Boolean           @default(false)
+  isRestricted     Boolean           @default(false)
+  sendBlockedReason String?          @db.VarChar(255)
   lastSyncedAt     DateTime          @default(now()) @db.Timestamptz
   createdAt        DateTime          @default(now()) @db.Timestamptz
   updatedAt        DateTime          @updatedAt @db.Timestamptz
@@ -515,6 +524,7 @@ model Publication {
 
   @@index([executionId])
   @@index([groupId, sentAt])
+  @@index([status, sentAt])
   @@map("publications")
 }
 

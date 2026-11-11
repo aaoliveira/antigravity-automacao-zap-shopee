@@ -279,3 +279,25 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 11 testes passando (`9.7s`).
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.24s`) sem erros.
 
+### 2026-11-11 — Blindagem Anti-Banimento WhatsApp / Evolution API (Sequência Itens 1 a 5 Validada Etapa a Etapa)
+- **Entregáveis por Sequência:**
+  - **Item 1 (Lock Global por Instância, Cooldown & Cota Diária Real sobre `Publication` + Warm-up):**
+    - [`backend/prisma/schema.prisma`](../../backend/prisma/schema.prisma) + migration `20261111204055_add_instance_antiban_rate_limits` (`dailyMessageLimit`, `minIntervalSeconds`, `warmUpEnabled` em `WhatsAppInstance` e índice `@@index([status, sentAt])` em `Publication`).
+    - [`backend/src/modules/evolution/instance-safety.helper.ts`](../../backend/src/modules/evolution/instance-safety.helper.ts), [`backend/src/modules/queue/queue.service.ts`](../../backend/src/modules/queue/queue.service.ts), [`backend/src/modules/automations/automations-executor.service.ts`](../../backend/src/modules/automations/automations-executor.service.ts), [`backend/src/modules/automations/automations.processor.ts`](../../backend/src/modules/automations/automations.processor.ts) e [`whatsapp-instances.controller.ts`](../../backend/src/modules/evolution/whatsapp-instances.controller.ts) / [`whatsapp-instances.service.ts`](../../backend/src/modules/evolution/whatsapp-instances.service.ts): Lock distribuído `lock:instance:${instanceId}`, cooldown global em Redis (`cooldown:instance:${instanceId}`), contagem real diária sobre `Publication` + modo *Warm-up*, endpoint `PATCH /api/whatsapp-instances/:id/safety-settings`, e *graceful shutdown* coordenado entre BullMQ Worker/Executor/Redis.
+  - **Item 2 (Jitter Aleatório, Macro-Pausa em Lotes & Micro-Variação de Agendamento):**
+    - `computeHumanizedGroupDelayMs` (distribuição `[0,7x; 1,6x]` em torno de `max(jitterSeconds, minIntervalSeconds)` + macro-pausa `20s–45s` a cada 5 grupos) e `AutomationsSchedulerService.calculateNextExecution` com micro-variação (`±12%`) limitada estritamente à janela horária e dias permitidos.
+  - **Item 3 (Circuit Breaker Evolution API, Aborto Imediato de Lote & Alerta no Dashboard):**
+    - Migration `20261111210735_add_instance_circuit_breaker` (`circuitOpenUntil`, `consecutiveSendFailures`, `lastErrorReason`).
+    - `classifyEvolutionSendError` + `computeCircuitCooldownMinutes` (`15m -> 30m -> 60m`), aborto imediato dos envios restantes em falhas fatais/429, auto-limpeza via `getStatus` / webhook, `POST /api/whatsapp-instances/:id/reset-circuit` e `alerts.openCircuits` em `DashboardService.getSummary`.
+  - **Item 4 (Spintax Nativo, `fileName` Dinâmico & `delay` Oficial Verificado):**
+    - `EvolutionClient.resolveSpintax` e `formatCaption` (sem colisão com `{titulo}`/`{{cupom}}`), `fileName` dinâmico por plataforma/produto em `WhatsAppGroupsService.sendMediaToGroup`, e parâmetro `delay` (ms) verificado na documentação oficial `https://docs.evolutionfoundation.com.br/evolution-api` em `docs/architecture/EVOLUTION_API_CONTRACTS.md` e `INTEGRATIONS.md`.
+  - **Item 5 (Permissões de Grupo, Auto-Bloqueio & Indicadores Anti-Ban na UI):**
+    - Migration `20261111211649_add_group_permissions_and_block_flags` (`isAnnounceOnly`, `isRestricted`, `sendBlockedReason`), sincronização de `announce`/`restrict` no `syncGroups`, auto-desativação pontual do grupo em erros `GROUP_PERM_ERROR`, reativação em `PATCH /api/whatsapp-groups/:id` e UI completa em [`DashboardView.vue`](../../frontend/src/views/DashboardView.vue), [`WhatsAppInstancesView.vue`](../../frontend/src/views/WhatsAppInstancesView.vue) e [`AutomationsView.vue`](../../frontend/src/views/AutomationsView.vue).
+    - Governança: [`ADR-010`](../architecture/decisions/ADR-010-protecao-antiban-whatsapp-evolution-api.md), [`DATABASE_SCHEMA.md`](../architecture/DATABASE_SCHEMA.md), [`API_CONTRACTS.md`](../architecture/API_CONTRACTS.md), [`BUSINESS_RULES.md`](../product/BUSINESS_RULES.md), [`ACCEPTANCE_CRITERIA.md`](../quality/ACCEPTANCE_CRITERIA.md) e [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
+- **Testes Consolidados Após Todos os 5 Itens (253 testes aprovados — 0 falhas):**
+  - Extensão Chrome (`node --test`): 4 testes passando (`64.31ms`).
+  - Backend Unit Tests (`jest`): 12 suites, 107 testes passando (`6.976s`).
+  - Backend E2E Tests (`jest --runInBand`): 13 suites, 130 testes passando (`18.542s`).
+  - Frontend E2E (Playwright): 12 testes passando (`12.6s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.28s`) sem erros.
+

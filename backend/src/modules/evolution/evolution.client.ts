@@ -27,6 +27,7 @@ export interface SendMediaParams {
   caption: string;
   fileName?: string;
   mimetype?: string;
+  delay?: number;
 }
 
 export interface SendTextParams {
@@ -67,11 +68,48 @@ export class EvolutionClient {
   private readonly defaultTimeoutMs = 15000;
 
   /**
-   * Formata a legenda da mensagem substituindo variáveis homologadas ({var} e {{var}}):
+   * Resolve blocos Spintax no formato {opção A|opção B|opção C} (inclusive aninhados),
+   * preservando variáveis de template como {titulo} ou {{cupom}} que não contêm '|'.
+   */
+  resolveSpintax(
+    text: string,
+    randomFn: () => number = Math.random,
+  ): string {
+    if (!text || !text.includes('{') || !text.includes('|')) {
+      return text;
+    }
+
+    let current = text;
+    const spintaxPattern = /\{([^{}]*\|[^{}]*)\}/g;
+    for (let pass = 0; pass < 10; pass++) {
+      let replaced = false;
+      current = current.replace(spintaxPattern, (_match, choicesStr: string) => {
+        replaced = true;
+        const options = choicesStr.split('|');
+        const idx = Math.min(
+          options.length - 1,
+          Math.max(0, Math.floor(randomFn() * options.length)),
+        );
+        return options[idx];
+      });
+      if (!replaced) {
+        break;
+      }
+    }
+
+    return current;
+  }
+
+  /**
+   * Formata a legenda da mensagem substituindo variáveis homologadas ({var} e {{var}}) e Spintax ({a|b}):
    * titulo, preco, link_afiliado, link_grupo, cupom, cupom_desconto, preco_com_cupom, cupom_validade.
    * Linhas contendo variáveis de cupom sem valor aplicável são removidas automaticamente.
    */
-  formatCaption(template: string | undefined | null, params: CaptionTemplateParams): string {
+  formatCaption(
+    template: string | undefined | null,
+    params: CaptionTemplateParams,
+    randomFn: () => number = Math.random,
+  ): string {
     const hasCustomTemplate = Boolean(template && template.trim().length > 0);
     let rawTemplate = hasCustomTemplate ? template! : DEFAULT_CAPTION_TEMPLATE;
 
@@ -114,7 +152,8 @@ export class EvolutionClient {
       return true;
     });
 
-    let rendered = processedLines.join('\n');
+    // Resolve Spintax antes da interpolação para evitar colisão com eventuais '{}' no título do produto
+    let rendered = this.resolveSpintax(processedLines.join('\n'), randomFn);
     for (const [key, val] of Object.entries(varValues)) {
       rendered = rendered
         .replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val)
@@ -419,6 +458,9 @@ export class EvolutionClient {
         caption: params.caption,
         media: params.media,
         fileName: params.fileName || 'produto.jpg',
+        ...(typeof params.delay === 'number' && params.delay > 0
+          ? { delay: Math.round(params.delay) }
+          : {}),
       },
     });
   }

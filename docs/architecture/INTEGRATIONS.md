@@ -49,7 +49,7 @@
   - Desconectar: `DELETE /instance/logout/{instanceName}`
   - Deletar: `DELETE /instance/delete/{instanceName}`
 - **Grupos:** `GET /group/fetchAllGroups/{instanceName}?getParticipants=false`
-- **Publicação:** `POST /message/sendMedia/{instanceName}` com payload JSON (`number` [JID do grupo], `mediatype: "image"`, `media: <URL_SHOPEE>`, `caption: <LEGENDA_COM_LINK_CURTO>`).
+- **Publicação:** `POST /message/sendMedia/{instanceName}` com payload JSON (`number` [JID do grupo], `mediatype: "image"`, `media: <URL_MIDIA>`, `caption: <LEGENDA_COM_SPINTAX_E_LINK_CURTO>`, `fileName` dinâmico por plataforma/produto e campo opcional verificado `delay` em ms — consultado em `https://docs.evolutionfoundation.com.br/evolution-api` em `2026-11-11`).
 
 ---
 

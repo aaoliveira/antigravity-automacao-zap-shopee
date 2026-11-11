@@ -121,7 +121,7 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
     // Conecta a instância A no banco para permitir publicações
     await prisma.whatsAppInstance.update({
       where: { id: tenantA_instanceId },
-      data: { status: InstanceStatus.CONNECTED },
+      data: { status: InstanceStatus.CONNECTED, minIntervalSeconds: 0 },
     });
 
     // Cria 2 Grupos vinculados à instância A
@@ -693,5 +693,243 @@ describe('Automations Engine e2e & Multi-Tenant Isolation Tests', () => {
       .delete(`/api/automations/${tenantA_automationId}`)
       .set('Authorization', `Bearer ${tenantB_token}`)
       .expect(404);
+  });
+
+  // ==========================================
+  // 4. ANTI-BAN ITEM 1: LOCK GLOBAL POR INSTÂNCIA, COOLDOWN E COTA DIÁRIA DE MENSAGENS
+  // ==========================================
+
+  describe('Anti-Ban Item 1: Configurações de Segurança, Serialização e Cota Diária por Instância', () => {
+    it('Deve atualizar safety settings da instância respeitando isolamento multi-tenant e validação mínima', async () => {
+      // Tenant B não pode alterar instância do Tenant A (404)
+      await request(app.getHttpServer())
+        .patch(`/api/whatsapp-instances/${tenantA_instanceId}/safety-settings`)
+        .set('Authorization', `Bearer ${tenantB_token}`)
+        .send({ dailyMessageLimit: 50, minIntervalSeconds: 20, warmUpEnabled: true })
+        .expect(404);
+
+      // Validação DTO impede intervalo menor que 5s em API pública (400)
+      await request(app.getHttpServer())
+        .patch(`/api/whatsapp-instances/${tenantA_instanceId}/safety-settings`)
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .send({ minIntervalSeconds: 2 })
+        .expect(400);
+
+      // Tenant A atualiza configurações válidas com sucesso
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/whatsapp-instances/${tenantA_instanceId}/safety-settings`)
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .send({
+          dailyMessageLimit: 120,
+          minIntervalSeconds: 10,
+          warmUpEnabled: true,
+        })
+        .expect(200);
+
+      expect(updateRes.body.success).toBe(true);
+      expect(updateRes.body.data.dailyMessageLimit).toBe(120);
+      expect(updateRes.body.data.minIntervalSeconds).toBe(10);
+      expect(updateRes.body.data.warmUpEnabled).toBe(true);
+      expect(updateRes.body.data.effectiveDailyLimit).toBeLessThanOrEqual(20);
+      expect(typeof updateRes.body.data.messagesSentToday).toBe('number');
+
+      // Isolamento multi-tenant no reset-circuit
+      await request(app.getHttpServer())
+        .post(`/api/whatsapp-instances/${tenantA_instanceId}/reset-circuit`)
+        .set('Authorization', `Bearer ${tenantB_token}`)
+        .expect(404);
+
+      const resetCircuitRes = await request(app.getHttpServer())
+        .post(`/api/whatsapp-instances/${tenantA_instanceId}/reset-circuit`)
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .expect(200);
+      expect(resetCircuitRes.body.data.isCircuitOpen).toBe(false);
+    });
+
+    it('Deve serializar duas automações concorrentes na mesma instância e impor cooldown global entre disparos', async () => {
+      jest.restoreAllMocks();
+
+      // Configura intervalo baixo (1s) para validar serialização + cooldown real em tempo hábil no teste
+      await prisma.whatsAppInstance.update({
+        where: { id: tenantA_instanceId },
+        data: {
+          dailyMessageLimit: 100,
+          minIntervalSeconds: 1,
+          warmUpEnabled: false,
+        },
+      });
+
+      const secondAutoRes = await request(app.getHttpServer())
+        .post('/api/automations')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .send({
+          name: 'Automação Concorrente Mesma Instância',
+          instanceId: tenantA_instanceId,
+          shopeeCredentialId: tenantA_shopeeCredId,
+          keywords: ['teclado'],
+          groupIds: [tenantA_group1Id],
+          frequencyMinutes: 60,
+          dailyExecutionLimit: 20,
+          jitterSeconds: 0,
+        })
+        .expect(201);
+
+      const secondAutoId = secondAutoRes.body.data.id;
+
+      // Garante que primeira automação use apenas 1 grupo temporariamente ou mantenha grupos ativos
+      await prisma.automation.update({
+        where: { id: tenantA_automationId },
+        data: { status: 'ACTIVE' },
+      });
+
+      let productSeq = 0;
+      jest.spyOn(shopeeClient, 'searchProducts').mockImplementation(async () => {
+        productSeq++;
+        return {
+          products: [
+            {
+              itemId: `SERIAL_PROD_${Date.now()}_${productSeq}`,
+              title: `Produto Serial ${productSeq}`,
+              productUrl: `https://shopee.com.br/p/${productSeq}`,
+              imageUrl: 'https://down-br.img.susercontent.com/file/serial.jpg',
+              price: 99.9,
+              commissionRate: 0.1,
+            },
+          ],
+          pageInfo: { page: 1, limit: 20, hasNextPage: false },
+        };
+      });
+
+      jest
+        .spyOn(shopeeClient, 'generateShortLink')
+        .mockResolvedValue('https://shope.ee/serial');
+
+      let activeSends = 0;
+      let maxConcurrentSends = 0;
+      const sendTimestamps: number[] = [];
+
+      jest.spyOn(evolutionClient, 'sendMedia').mockImplementation(async () => {
+        activeSends++;
+        maxConcurrentSends = Math.max(maxConcurrentSends, activeSends);
+        sendTimestamps.push(Date.now());
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        activeSends--;
+        return {
+          key: { id: `MSG_${Date.now()}_${sendTimestamps.length}` },
+        };
+      });
+
+      const [resA, resB] = await Promise.all([
+        executorService.execute(tenantA_automationId, tenantA_id, true),
+        executorService.execute(secondAutoId, tenantA_id, true),
+      ]);
+
+      expect(resA.success).toBe(true);
+      expect(resB.success).toBe(true);
+      // Nunca pode haver >1 disparo simultâneo para o mesmo instanceId
+      expect(maxConcurrentSends).toBe(1);
+      // Cada par de mensagens consecutivas na mesma instância deve respeitar ~1s de cooldown global
+      for (let idx = 1; idx < sendTimestamps.length; idx++) {
+        expect(sendTimestamps[idx] - sendTimestamps[idx - 1]).toBeGreaterThanOrEqual(850);
+      }
+
+      // Valida cota diária real contando Publications já enviadas hoje
+      const listRes = await request(app.getHttpServer())
+        .get('/api/whatsapp-instances')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .expect(200);
+
+      const instData = listRes.body.data.find(
+        (i: any) => i.id === tenantA_instanceId,
+      );
+      expect(instData).toBeDefined();
+      const sentToday = instData.messagesSentToday as number;
+      expect(sentToday).toBeGreaterThanOrEqual(3);
+
+      // Define limite exato igual ao já enviado hoje -> próxima execução deve ser bloqueada antes de enviar
+      await prisma.whatsAppInstance.update({
+        where: { id: tenantA_instanceId },
+        data: { dailyMessageLimit: sentToday, minIntervalSeconds: 0 },
+      });
+
+      const sendCountBeforeCap = (evolutionClient.sendMedia as jest.Mock).mock.calls.length;
+      const blockedRes = await executorService.execute(secondAutoId, tenantA_id, true);
+      expect(blockedRes.success).toBe(false);
+      expect(blockedRes.message).toContain('Limite diário de mensagens da instância atingido');
+      expect((evolutionClient.sendMedia as jest.Mock).mock.calls.length).toBe(sendCountBeforeCap);
+    });
+  });
+
+  // ==========================================
+  // 5. ANTI-BAN ITEM 4: SPINTAX POR GRUPO, FILENAME DINÂMICO E DELAY VERIFICADO NO SENDMEDIA
+  // ==========================================
+
+  describe('Anti-Ban Item 4: Spintax, fileName Dinâmico e Delay Oficial na Evolution API', () => {
+    it('Deve renderizar Spintax por grupo, gerar fileName dinâmico da plataforma/produto e incluir delay em ms', async () => {
+      jest.restoreAllMocks();
+
+      await prisma.whatsAppInstance.update({
+        where: { id: tenantA_instanceId },
+        data: { dailyMessageLimit: 100, minIntervalSeconds: 0, warmUpEnabled: false },
+      });
+
+      const spintaxAutoRes = await request(app.getHttpServer())
+        .post('/api/automations')
+        .set('Authorization', `Bearer ${tenantA_token}`)
+        .send({
+          name: 'Automação Spintax Item 4',
+          instanceId: tenantA_instanceId,
+          shopeeCredentialId: tenantA_shopeeCredId,
+          keywords: ['cafeteira'],
+          groupIds: [tenantA_group1Id, tenantA_group2Id],
+          frequencyMinutes: 60,
+          dailyExecutionLimit: 20,
+          jitterSeconds: 0,
+          captionTemplate:
+            '{Oferta relâmpago|Achado do dia}!\n*{titulo}*\nPor *{preco}*\n{Acesse aqui|Confira}: {link_afiliado}',
+        })
+        .expect(201);
+
+      jest.spyOn(shopeeClient, 'searchProducts').mockResolvedValue({
+        products: [
+          {
+            itemId: 'SPX_ITEM_7788',
+            title: 'Cafeteira Elétrica Inox',
+            productUrl: 'https://shopee.com.br/product/123/7788',
+            imageUrl: 'https://down-br.img.susercontent.com/file/cafeteira.png',
+            price: 129.9,
+            commissionRate: 0.12,
+          },
+        ],
+        pageInfo: { page: 1, limit: 20, hasNextPage: false },
+      });
+      jest
+        .spyOn(shopeeClient, 'generateShortLink')
+        .mockResolvedValue('https://shope.ee/cafeteira77');
+
+      const sendSpy = jest
+        .spyOn(evolutionClient, 'sendMedia')
+        .mockResolvedValue({ key: { id: 'MSG_SPINTAX_OK' } });
+
+      const execRes = await executorService.execute(
+        spintaxAutoRes.body.data.id,
+        tenantA_id,
+        true,
+      );
+
+      expect(execRes.success).toBe(true);
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+
+      for (const call of sendSpy.mock.calls) {
+        const mediaParams = call[3];
+        expect(mediaParams.fileName).toBe('oferta-shopee-spx_item_7788.png');
+        expect(mediaParams.delay).toBeGreaterThanOrEqual(900);
+        expect(mediaParams.delay).toBeLessThanOrEqual(2000);
+        expect(mediaParams.caption).toMatch(/^(Oferta relâmpago|Achado do dia)!/);
+        expect(mediaParams.caption).not.toContain('{Oferta');
+        expect(mediaParams.caption).toContain('Cafeteira Elétrica Inox');
+        expect(mediaParams.caption).toContain('https://shope.ee/cafeteira77');
+      }
+    });
   });
 });

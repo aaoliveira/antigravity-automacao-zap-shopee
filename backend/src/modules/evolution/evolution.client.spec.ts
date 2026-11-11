@@ -233,6 +233,39 @@ describe('Evolution API - Unit Tests', () => {
       );
     });
 
+    it('sendMedia deve incluir delay (ms) e fileName personalizado no payload quando informados', async () => {
+      const mockFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ key: { id: 'MSG999' } }),
+      });
+      global.fetch = mockFetch;
+
+      await client.sendMedia(baseUrl, apiKey, 'instancia-01', {
+        number: '1203630192837465@g.us',
+        media: 'https://down-br.img.susercontent.com/file/br-11134207.jpg',
+        caption: 'Teste delay',
+        fileName: 'oferta-shopee-item99.jpg',
+        delay: 1450,
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://evolution.example.com/message/sendMedia/instancia-01',
+        expect.objectContaining({
+          body: JSON.stringify({
+            number: '1203630192837465@g.us',
+            mediatype: 'image',
+            mimetype: 'image/jpeg',
+            caption: 'Teste delay',
+            media: 'https://down-br.img.susercontent.com/file/br-11134207.jpg',
+            fileName: 'oferta-shopee-item99.jpg',
+            delay: 1450,
+          }),
+        }),
+      );
+    });
+
     it('deve lançar UnauthorizedException quando a Evolution API retornar 401', async () => {
       const mockFetch = jest.fn().mockResolvedValue({
         ok: false,
@@ -282,6 +315,40 @@ describe('Evolution API - Unit Tests', () => {
 
       expect(rendered).toBe(
         '*Carregador Rápido USB-C*\nPreço: R$ 59,90\nConfira: https://shope.ee/usb',
+      );
+    });
+  });
+
+  describe('formatCaption - Suporte a Spintax Anti-Ban (Item 4)', () => {
+    it('deve resolver blocos Spintax simples e aninhados sem colidir com {titulo}, {{cupom}} ou remoção de linhas vazias', () => {
+      const tpl =
+        '{Oferta imperdível|Achadinho do dia|Super promoção {relâmpago|VIP}}!\n*{titulo}*\nPor *{preco}*\nCupom: *{{cupom}}*\n{Confira aqui|Garanta já}: {link_afiliado}';
+
+      const pickFirst = client.formatCaption(
+        tpl,
+        {
+          titulo: 'Kit Gamer {Edição|Especial}',
+          preco: 'R$ 120,00',
+          link_afiliado: 'https://shope.ee/gamer',
+        },
+        () => 0,
+      );
+      expect(pickFirst).toBe(
+        'Oferta imperdível!\n*Kit Gamer {Edição|Especial}*\nPor *R$ 120,00*\nConfira aqui: https://shope.ee/gamer',
+      );
+
+      const pickLast = client.formatCaption(
+        tpl,
+        {
+          titulo: 'Kit Gamer',
+          preco: 'R$ 120,00',
+          link_afiliado: 'https://shope.ee/gamer',
+          cupom: 'VIP10',
+        },
+        () => 0.99,
+      );
+      expect(pickLast).toBe(
+        'Super promoção VIP!\n*Kit Gamer*\nPor *R$ 120,00*\nCupom: *VIP10*\nGaranta já: https://shope.ee/gamer',
       );
     });
   });

@@ -263,6 +263,55 @@ describe('Evolution API e2e & Multi-Tenant Isolation Tests', () => {
     expect(res.body.data[0].id).toBe(tenantA_groupId);
   });
 
+  it('Deve persistir flags isAnnounceOnly e isRestricted ao sincronizar grupos e permitir reativação via PATCH (Item 5)', async () => {
+    jest.spyOn(evolutionClient, 'fetchAllGroups').mockResolvedValueOnce([
+      {
+        id: '1203630192837465@g.us',
+        subject: 'Grupo Achadinhos VIP A',
+        size: 120,
+        announce: false,
+        restrict: false,
+      },
+      {
+        id: '1203630999888777@g.us',
+        subject: 'Grupo Canal Admins Only',
+        size: 310,
+        announce: true,
+        restrict: true,
+      },
+    ]);
+
+    const syncRes = await request(app.getHttpServer())
+      .post(`/api/whatsapp-groups/sync/${tenantA_instanceId}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .expect(200);
+
+    expect(syncRes.body.data.count).toBe(2);
+    expect(syncRes.body.data.announceOnlyCount).toBe(1);
+
+    const adminOnlyGrp = syncRes.body.data.groups.find(
+      (g: any) => g.jid === '1203630999888777@g.us',
+    );
+    expect(adminOnlyGrp).toBeDefined();
+    expect(adminOnlyGrp.isAnnounceOnly).toBe(true);
+    expect(adminOnlyGrp.isRestricted).toBe(true);
+
+    // Simula bloqueio automático e testa reativação manual via PATCH
+    await prisma.whatsAppGroup.update({
+      where: { id: adminOnlyGrp.id },
+      data: { isActive: false, sendBlockedReason: 'only admins can send' },
+    });
+
+    const patchRes = await request(app.getHttpServer())
+      .patch(`/api/whatsapp-groups/${adminOnlyGrp.id}`)
+      .set('Authorization', `Bearer ${tenantA_token}`)
+      .send({ isActive: true })
+      .expect(200);
+
+    expect(patchRes.body.data.isActive).toBe(true);
+    expect(patchRes.body.data.sendBlockedReason).toBeNull();
+  });
+
   // ==========================================
   // 4. TESTES DE MENSAGENS E MÍDIA
   // ==========================================

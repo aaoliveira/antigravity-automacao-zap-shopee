@@ -8,8 +8,15 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { EvolutionClient } from './evolution.client';
-import { CreateWhatsAppInstanceDto } from './dto/evolution.dto';
-import { InstanceStatus } from '@prisma/client';
+import {
+  CreateWhatsAppInstanceDto,
+  UpdateInstanceSafetySettingsDto,
+} from './dto/evolution.dto';
+import { InstanceStatus, PublicationStatus } from '@prisma/client';
+import {
+  computeEffectiveInstanceDailyLimit,
+  getStartOfDayInZone,
+} from './instance-safety.helper';
 
 @Injectable()
 export class WhatsAppInstancesService {
@@ -22,10 +29,10 @@ export class WhatsAppInstancesService {
   ) {}
 
   /**
-   * Lista todas as instâncias do WhatsApp pertencentes ao tenant.
+   * Lista todas as instâncias do WhatsApp pertencentes ao tenant com telemetria diária e limites efetivos.
    */
   async findAllByTenant(tenantId: string) {
-    return this.prisma.whatsAppInstance.findMany({
+    const instances = await this.prisma.whatsAppInstance.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -37,6 +44,12 @@ export class WhatsAppInstancesService {
         status: true,
         phoneConnected: true,
         lastConnectedAt: true,
+        dailyMessageLimit: true,
+        minIntervalSeconds: true,
+        warmUpEnabled: true,
+        circuitOpenUntil: true,
+        consecutiveSendFailures: true,
+        lastErrorReason: true,
         createdAt: true,
         updatedAt: true,
         server: {
@@ -51,6 +64,8 @@ export class WhatsAppInstancesService {
         },
       },
     });
+
+    return this.enrichWithSafetyTelemetry(tenantId, instances);
   }
 
   /**
@@ -74,7 +89,148 @@ export class WhatsAppInstancesService {
       throw new NotFoundException('Instância WhatsApp não encontrada para o tenant.');
     }
 
-    return instance;
+    const [enriched] = await this.enrichWithSafetyTelemetry(tenantId, [instance]);
+    return enriched;
+  }
+
+  /**
+   * Atualiza configurações anti-banimento da instância WhatsApp com validação estrita de tenant.
+   */
+  async updateSafetySettings(
+    tenantId: string,
+    id: string,
+    dto: UpdateInstanceSafetySettingsDto,
+  ) {
+    const existing = await this.prisma.whatsAppInstance.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Instância WhatsApp não encontrada para o tenant.');
+    }
+
+    const updated = await this.prisma.whatsAppInstance.update({
+      where: { id },
+      data: {
+        dailyMessageLimit: dto.dailyMessageLimit ?? existing.dailyMessageLimit,
+        minIntervalSeconds: dto.minIntervalSeconds ?? existing.minIntervalSeconds,
+        warmUpEnabled: dto.warmUpEnabled ?? existing.warmUpEnabled,
+      },
+      include: {
+        server: {
+          select: {
+            id: true,
+            name: true,
+            baseUrl: true,
+          },
+        },
+        _count: {
+          select: { groups: true },
+        },
+      },
+    });
+
+    const [enriched] = await this.enrichWithSafetyTelemetry(tenantId, [updated]);
+    return enriched;
+  }
+
+  /**
+   * Reabre/reseta manualmente o Circuit Breaker de uma instância após o usuário verificar o número.
+   */
+  async resetCircuitBreaker(tenantId: string, id: string) {
+    const existing = await this.prisma.whatsAppInstance.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Instância WhatsApp não encontrada para o tenant.');
+    }
+
+    const updated = await this.prisma.whatsAppInstance.update({
+      where: { id },
+      data: {
+        circuitOpenUntil: null,
+        consecutiveSendFailures: 0,
+        lastErrorReason: null,
+      },
+      include: {
+        server: {
+          select: {
+            id: true,
+            name: true,
+            baseUrl: true,
+          },
+        },
+        _count: {
+          select: { groups: true },
+        },
+      },
+    });
+
+    const [enriched] = await this.enrichWithSafetyTelemetry(tenantId, [updated]);
+    return enriched;
+  }
+
+  private async enrichWithSafetyTelemetry<
+    T extends {
+      id: string;
+      dailyMessageLimit?: number;
+      warmUpEnabled?: boolean;
+      lastConnectedAt?: Date | null;
+      circuitOpenUntil?: Date | null;
+      createdAt?: Date;
+    },
+  >(tenantId: string, instances: T[]) {
+    if (instances.length === 0) return [];
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    const startOfDay = getStartOfDayInZone(tenant?.timezone || 'America/Sao_Paulo');
+
+    const instanceIds = instances.map((i) => i.id);
+    const todayPublications = await this.prisma.publication.findMany({
+      where: {
+        status: PublicationStatus.SUCCESS,
+        sentAt: { gte: startOfDay },
+        group: {
+          tenantId,
+          instanceId: { in: instanceIds },
+        },
+      },
+      select: {
+        group: {
+          select: { instanceId: true },
+        },
+      },
+    });
+
+    const countsByInstance = new Map<string, number>();
+    for (const pub of todayPublications) {
+      const instId = pub.group?.instanceId;
+      if (instId) {
+        countsByInstance.set(instId, (countsByInstance.get(instId) || 0) + 1);
+      }
+    }
+
+    const now = new Date();
+    return instances.map((instance) => {
+      const limitInfo = computeEffectiveInstanceDailyLimit(instance, now);
+      const isCircuitOpen = Boolean(
+        instance.circuitOpenUntil &&
+          new Date(instance.circuitOpenUntil).getTime() > now.getTime(),
+      );
+      return {
+        ...instance,
+        messagesSentToday: countsByInstance.get(instance.id) || 0,
+        effectiveDailyLimit: limitInfo.effectiveDailyLimit,
+        warmUpStageDays: limitInfo.warmUpStageDays,
+        warmUpCapApplied: limitInfo.warmUpCapApplied,
+        warmUpRecommendedCap: limitInfo.warmUpRecommendedCap,
+        isCircuitOpen,
+      };
+    });
   }
 
   /**
@@ -127,6 +283,15 @@ export class WhatsAppInstancesService {
         displayName: dto.displayName.trim(),
         status: InstanceStatus.CREATED,
         qrCodeBase64: initialQrCode,
+        ...(dto.dailyMessageLimit !== undefined
+          ? { dailyMessageLimit: dto.dailyMessageLimit }
+          : {}),
+        ...(dto.minIntervalSeconds !== undefined
+          ? { minIntervalSeconds: dto.minIntervalSeconds }
+          : {}),
+        ...(dto.warmUpEnabled !== undefined
+          ? { warmUpEnabled: dto.warmUpEnabled }
+          : {}),
       },
       include: {
         server: {
@@ -261,6 +426,13 @@ export class WhatsAppInstancesService {
           status: newStatus,
           qrCodeBase64: newStatus === InstanceStatus.CONNECTED ? null : instance.qrCodeBase64,
           lastConnectedAt: newStatus === InstanceStatus.CONNECTED ? new Date() : instance.lastConnectedAt,
+          ...(newStatus === InstanceStatus.CONNECTED
+            ? {
+                circuitOpenUntil: null,
+                consecutiveSendFailures: 0,
+                lastErrorReason: null,
+              }
+            : {}),
         },
       });
 

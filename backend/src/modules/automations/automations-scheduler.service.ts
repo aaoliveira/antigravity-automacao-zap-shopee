@@ -17,6 +17,12 @@ export interface SchedulerConfig {
   timezone?: string;
 }
 
+export interface NextExecutionOptions {
+  applyMicroVariation?: boolean;
+  variationPercent?: number;
+  randomFn?: () => number;
+}
+
 const WEEKDAY_MAP: Record<string, number> = {
   Mon: 1,
   Tue: 2,
@@ -195,10 +201,12 @@ export class AutomationsSchedulerService
 
   /**
    * Calcula o próximo horário de execução considerando frequência, janela horária, dias da semana e fuso horário.
+   * Quando `applyMicroVariation` estiver habilitado, aplica jitter aleatório de ±10%–15% mantendo limites da janela.
    */
   calculateNextExecution(
     config: SchedulerConfig,
     fromDate: Date = new Date(),
+    options: NextExecutionOptions = {},
   ): Date {
     const startMinutes = this.parseWindowMinutes(config.windowStartTime, 8 * 60);
     const endMinutes = this.parseWindowMinutes(config.windowEndTime, 22 * 60);
@@ -208,8 +216,24 @@ export class AutomationsSchedulerService
         ? config.daysOfWeek
         : [1, 2, 3, 4, 5, 6, 7];
 
-    // Candidato inicial: adiciona frequencyMinutes
-    const candidate = new Date(fromDate.getTime() + freqMinutes * 60 * 1000);
+    const randFn = options.randomFn ?? Math.random;
+    let effectiveFreqMs = freqMinutes * 60 * 1000;
+
+    if (options.applyMicroVariation && freqMinutes > 0) {
+      const ratio = Math.min(
+        0.15,
+        Math.max(0.1, options.variationPercent ?? 0.12),
+      );
+      const randVal = Math.min(1, Math.max(0, randFn()));
+      const signedFactor = (randVal * 2 - 1) * ratio;
+      effectiveFreqMs = Math.max(
+        60 * 1000,
+        Math.round(effectiveFreqMs * (1 + signedFactor)),
+      );
+    }
+
+    // Candidato inicial: adiciona frequência (com eventual micro-variação)
+    const candidate = new Date(fromDate.getTime() + effectiveFreqMs);
 
     // Ajusta se não avançou (exceto quando frequencyMinutes === 0 na inicialização)
     if (freqMinutes > 0 && candidate.getTime() <= fromDate.getTime()) {
@@ -237,6 +261,19 @@ export class AutomationsSchedulerService
         const diffMins = startMinutes - currentMinutes;
         candidate.setTime(candidate.getTime() + diffMins * 60 * 1000);
         candidate.setSeconds(0, 0);
+        if (options.applyMicroVariation) {
+          const spanMins = Math.max(0, endMinutes - startMinutes);
+          const maxStartJitterMs = Math.min(
+            5 * 60 * 1000,
+            Math.floor(spanMins * 60 * 1000 * 0.1),
+          );
+          if (maxStartJitterMs > 0) {
+            const extraMs = Math.round(
+              Math.min(1, Math.max(0, randFn())) * maxStartJitterMs,
+            );
+            candidate.setTime(candidate.getTime() + extraMs);
+          }
+        }
         return candidate;
       }
 
@@ -345,6 +382,7 @@ export class AutomationsSchedulerService
               timezone: auto.tenant?.timezone || 'America/Sao_Paulo',
             },
             now,
+            { applyMicroVariation: true },
           );
 
           // Claim atômico para evitar que múltiplos schedulers disparem a mesma execução

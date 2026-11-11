@@ -355,7 +355,21 @@
                   class="text-shopee-orange rounded focus:ring-shopee-orange mr-3"
                 />
                 <div class="flex-1">
-                  <p class="text-sm font-semibold text-gray-800">{{ grp.name }}</p>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="text-sm font-semibold text-gray-800">{{ grp.name }}</p>
+                    <span
+                      v-if="grp.isAnnounceOnly"
+                      class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800"
+                    >
+                      Apenas Admins
+                    </span>
+                    <span
+                      v-if="grp.isActive === false"
+                      class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800"
+                    >
+                      Bloqueado/Inativo
+                    </span>
+                  </div>
                   <p class="text-xs text-gray-400 font-mono">{{ grp.jid }} • {{ grp.participantCount || 0 }} membros</p>
                 </div>
               </label>
@@ -442,6 +456,13 @@
                   <div class="flex flex-wrap items-center gap-3">
                     <button
                       type="button"
+                      @click="applySpintaxHelper"
+                      class="text-[11px] font-semibold text-indigo-700 hover:underline"
+                    >
+                      + Inserir Spintax Anti-Ban
+                    </button>
+                    <button
+                      type="button"
                       @click="applyCouponCaptionTemplate"
                       class="text-[11px] font-semibold text-emerald-700 hover:underline"
                     >
@@ -459,9 +480,12 @@
                 <textarea
                   v-model="wizardData.captionTemplate"
                   rows="4"
-                  placeholder="Deixe em branco para modelo padrão. Variáveis: {titulo}, {preco}, {link_afiliado}, {link_grupo}, {{cupom}}, {{cupom_desconto}}, {{preco_com_cupom}}, {{cupom_validade}}"
+                  placeholder="Deixe em branco para modelo padrão. Dica: use Spintax {Oferta|Achado} e variáveis {titulo}, {preco}, {link_afiliado}, {link_grupo}, {{cupom}}"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-shopee-orange focus:border-shopee-orange"
                 ></textarea>
+                <p class="text-[11px] text-gray-500 mt-1">
+                  Suporta Spintax (<code class="bg-gray-100 px-1 rounded">&#123;opção A|opção B&#125;</code>) para variar o texto automaticamente entre grupos e reduzir detecção de spam.
+                </p>
               </div>
             </div>
           </div>
@@ -576,8 +600,26 @@
                   max="60"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
-                <p class="text-[11px] text-gray-400 mt-0.5">Proteção contra bloqueio no WhatsApp.</p>
+                <p class="text-[11px] text-gray-400 mt-0.5">Aplicado com variação aleatória + macro-pausa a cada 5 grupos.</p>
               </div>
+            </div>
+
+            <!-- Termômetro de Risco Anti-Ban (Item 5) -->
+            <div
+              data-testid="antiban-risk-meter"
+              :class="antiBanAssessment.boxClass"
+              class="rounded-xl p-4 border text-xs space-y-2"
+            >
+              <div class="flex items-center justify-between">
+                <span class="font-bold">Termômetro Anti-Banimento: {{ antiBanAssessment.label }}</span>
+                <span :class="antiBanAssessment.badgeClass" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold">
+                  ~{{ antiBanAssessment.estimatedDailyMsgs }} msgs/dia nesta esteira
+                </span>
+              </div>
+              <ul v-if="antiBanAssessment.recommendations.length > 0" class="list-disc pl-4 space-y-0.5">
+                <li v-for="(tip, idx) in antiBanAssessment.recommendations" :key="idx">{{ tip }}</li>
+              </ul>
+              <p v-else>Configuração equilibrada para publicação contínua com baixo risco.</p>
             </div>
           </div>
 
@@ -597,10 +639,21 @@
                 {{ selectedCouponObj ? `${selectedCouponObj.code} (${formatCouponSummary(selectedCouponObj)})` : 'Seleção automática (melhor cupom elegível)' }}
               </p>
               <p><strong>Nichos:</strong> {{ wizardData.keywords.join(', ') }}</p>
-              <p><strong>Frequência:</strong> A cada {{ wizardData.frequencyMinutes }} minutos</p>
+              <p><strong>Frequência:</strong> A cada {{ wizardData.frequencyMinutes }} minutos (micro-variação ±12%)</p>
               <p><strong>Horário de Envio:</strong> Das {{ wizardData.windowStartTime }} às {{ wizardData.windowEndTime }}</p>
               <p><strong>Limite Diário:</strong> Até {{ wizardData.dailyExecutionLimit }} envios/dia</p>
-              <p><strong>Proteção Anti-Spam:</strong> Jitter de {{ wizardData.jitterSeconds }}s e desduplicação de {{ wizardData.dedupWindowDays }} dias</p>
+              <p><strong>Proteção Anti-Spam:</strong> Jitter base de {{ wizardData.jitterSeconds }}s (aleatorizado), Spintax {{ antiBanAssessment.hasSpintax ? 'ativo' : 'não detectado' }} e desduplicação de {{ wizardData.dedupWindowDays }} dias</p>
+            </div>
+
+            <div
+              data-testid="antiban-risk-meter-summary"
+              :class="antiBanAssessment.boxClass"
+              class="rounded-xl p-3.5 border text-xs flex items-center justify-between"
+            >
+              <span><strong>Classificação Anti-Ban:</strong> {{ antiBanAssessment.label }}</span>
+              <span :class="antiBanAssessment.badgeClass" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold">
+                ~{{ antiBanAssessment.estimatedDailyMsgs }} msgs/dia
+              </span>
             </div>
           </div>
 
@@ -768,7 +821,7 @@ function createDefaultWizardData() {
     captionTemplate: '',
     frequencyMinutes: 60,
     dailyExecutionLimit: 20,
-    jitterSeconds: 10,
+    jitterSeconds: 15,
     windowStartTime: '08:00',
     windowEndTime: '22:00',
     daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
@@ -856,6 +909,98 @@ function applyCouponCaptionTemplate() {
   wizardData.value.captionTemplate =
     '*{titulo}*\nPor *{preco}*\nCupom: *{{cupom}}*\nDesconto: {{cupom_desconto}}\nCom cupom: *R$ {{preco_com_cupom}}*\nVálido até {{cupom_validade}}\n\n🛒 {link_afiliado}';
 }
+
+function applySpintaxHelper() {
+  wizardData.value.captionTemplate =
+    '{🔥 Oferta imperdível|⚡ Achadinho do dia|✨ Oportunidade selecionada}!\n\n*{titulo}*\n{Por apenas|Hoje por}: *{preco}*\nCupom: *{{cupom}}*\n{Confira no link|Garanta agora}: {link_afiliado}';
+}
+
+const selectedInstanceObj = computed(() =>
+  instances.value.find((inst) => inst.id === wizardData.value.instanceId) || null,
+);
+
+const antiBanAssessment = computed(() => {
+  const effectiveGroups =
+    wizardData.value.dispatchStrategy === 'RANDOM_SINGLE'
+      ? 1
+      : Math.max(1, wizardData.value.groupIds.length);
+  const estimatedDailyMsgs =
+    (Number(wizardData.value.dailyExecutionLimit) || 0) * effectiveGroups;
+  const instanceCap =
+    selectedInstanceObj.value?.effectiveDailyLimit ??
+    selectedInstanceObj.value?.dailyMessageLimit ??
+    100;
+  const hasSpintax = /\{[^{}]+\|[^{}]+\}/.test(wizardData.value.captionTemplate || '');
+  const jitter = Number(wizardData.value.jitterSeconds) || 0;
+  const freq = Number(wizardData.value.frequencyMinutes) || 60;
+
+  let riskPoints = 0;
+  const recommendations: string[] = [];
+
+  if (jitter < 10) {
+    riskPoints += 3;
+    recommendations.push('Aumente o jitter entre grupos para pelo menos 15s.');
+  } else if (jitter < 15) {
+    riskPoints += 1;
+    recommendations.push('Considere usar jitter de 15s ou mais em múltiplos grupos.');
+  }
+
+  if (freq < 30) {
+    riskPoints += 2;
+    recommendations.push('Intervalo inferior a 30 minutos eleva a frequência de rajadas.');
+  }
+
+  if (estimatedDailyMsgs > instanceCap) {
+    riskPoints += 3;
+    recommendations.push(
+      `Volume estimado (${estimatedDailyMsgs}/dia) excede a cota segura da instância (${instanceCap}/dia).`,
+    );
+  } else if (estimatedDailyMsgs > 80) {
+    riskPoints += 2;
+    recommendations.push('Considere estratégia "1 Grupo Aleatório" ou reduzir o limite diário.');
+  }
+
+  if (!hasSpintax) {
+    riskPoints += 1;
+    recommendations.push('Adicione variações Spintax {opção A|opção B} na legenda da Etapa 3.');
+  }
+
+  if (selectedInstanceObj.value && !selectedInstanceObj.value.warmUpEnabled) {
+    recommendations.push('Para chips novos, ative o modo Warm-up na aba Instâncias WhatsApp.');
+  }
+
+  if (riskPoints >= 5) {
+    return {
+      level: 'HIGH',
+      label: 'Alto Risco',
+      estimatedDailyMsgs,
+      hasSpintax,
+      boxClass: 'bg-rose-50 border-rose-200 text-rose-800',
+      badgeClass: 'bg-rose-600 text-white',
+      recommendations,
+    };
+  }
+  if (riskPoints >= 2) {
+    return {
+      level: 'MEDIUM',
+      label: 'Risco Moderado',
+      estimatedDailyMsgs,
+      hasSpintax,
+      boxClass: 'bg-amber-50 border-amber-200 text-amber-800',
+      badgeClass: 'bg-amber-500 text-white',
+      recommendations,
+    };
+  }
+  return {
+    level: 'LOW',
+    label: 'Baixo Risco',
+    estimatedDailyMsgs,
+    hasSpintax,
+    boxClass: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    badgeClass: 'bg-emerald-600 text-white',
+    recommendations,
+  };
+});
 
 // Modal de Histórico
 const historyModalOpen = ref(false);

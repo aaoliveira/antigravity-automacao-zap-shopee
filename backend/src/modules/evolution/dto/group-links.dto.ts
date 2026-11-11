@@ -149,4 +149,8 @@ export class UpdateGroupInviteDto {
   @Min(1)
   @Max(2000)
   maxParticipants?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

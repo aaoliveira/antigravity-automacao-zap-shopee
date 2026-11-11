@@ -200,8 +200,8 @@
               :key="inst.id"
               class="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4"
             >
-              <div class="space-y-1">
-                <div class="flex items-center space-x-3">
+              <div class="space-y-1.5">
+                <div class="flex flex-wrap items-center gap-2">
                   <h5 class="text-base font-semibold text-gray-900">{{ inst.displayName }}</h5>
                   <span
                     :class="getStatusBadgeClass(inst.status)"
@@ -209,12 +209,39 @@
                   >
                     {{ getStatusLabel(inst.status) }}
                   </span>
+                  <span
+                    v-if="inst.warmUpEnabled"
+                    class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200"
+                  >
+                    Warm-up Ativo<span v-if="inst.warmUpStageDays !== null && inst.warmUpStageDays !== undefined"> (Dia {{ inst.warmUpStageDays }})</span>
+                  </span>
+                  <span
+                    v-if="inst.isCircuitOpen"
+                    data-testid="instance-circuit-badge"
+                    class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-800 border border-rose-200"
+                    :title="inst.lastErrorReason || 'Circuit Breaker ativado'"
+                  >
+                    Circuit Breaker Aberto
+                  </span>
                 </div>
-                <div class="text-sm text-gray-500 flex flex-wrap gap-x-4">
+                <div class="text-sm text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
                   <span>Slug: <strong class="text-gray-700 font-mono">{{ inst.instanceName }}</strong></span>
                   <span>Servidor: <strong class="text-gray-700">{{ inst.server?.name }}</strong></span>
                   <span>Grupos: <strong class="text-gray-700">{{ inst._count?.groups || 0 }}</strong></span>
+                  <span data-testid="instance-daily-quota">
+                    Envios hoje:
+                    <strong class="text-gray-800">{{ inst.messagesSentToday ?? 0 }} / {{ inst.effectiveDailyLimit ?? inst.dailyMessageLimit ?? 100 }}</strong>
+                  </span>
+                  <span>Cooldown: <strong class="text-gray-700">{{ inst.minIntervalSeconds ?? 15 }}s</strong></span>
                 </div>
+                <p
+                  v-if="inst.isCircuitOpen || (inst.consecutiveSendFailures && inst.consecutiveSendFailures > 0)"
+                  class="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-2.5 py-1 inline-block"
+                >
+                  Proteção ativa ({{ inst.consecutiveSendFailures }} falha(s))
+                  <span v-if="inst.circuitOpenUntil"> • Cooldown até {{ new Date(inst.circuitOpenUntil).toLocaleTimeString('pt-BR') }}</span>
+                  <span v-if="inst.lastErrorReason"> — {{ inst.lastErrorReason }}</span>
+                </p>
               </div>
 
               <!-- Ações da Instância -->
@@ -237,6 +264,25 @@
                   class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg transition-colors"
                 >
                   Verificar Estado
+                </button>
+
+                <!-- Botão Proteção Anti-Ban / Warm-up -->
+                <button
+                  data-testid="btn-open-safety-modal"
+                  @click="openSafetyModal(inst)"
+                  class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors"
+                >
+                  Proteção Anti-Ban
+                </button>
+
+                <!-- Botão Resetar Circuit Breaker -->
+                <button
+                  v-if="inst.isCircuitOpen || (inst.consecutiveSendFailures && inst.consecutiveSendFailures > 0)"
+                  data-testid="btn-reset-circuit"
+                  @click="resetCircuitBreaker(inst)"
+                  class="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Resetar Circuit
                 </button>
 
                 <!-- Botão Sincronizar Grupos -->
@@ -310,7 +356,30 @@
               </thead>
               <tbody class="divide-y divide-gray-100">
                 <tr v-for="grp in filteredGroups" :key="grp.id" class="hover:bg-gray-50">
-                  <td class="py-3 px-4 font-semibold text-gray-900">{{ grp.name }}</td>
+                  <td class="py-3 px-4 font-semibold text-gray-900">
+                    <div>{{ grp.name }}</div>
+                    <div class="flex flex-wrap gap-1.5 mt-1">
+                      <span
+                        v-if="grp.isAnnounceOnly"
+                        data-testid="group-announce-badge"
+                        class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800"
+                        title="Somente administradores enviam mensagens neste grupo"
+                      >
+                        Apenas Admins
+                      </span>
+                      <span
+                        v-if="!grp.isActive"
+                        data-testid="group-blocked-badge"
+                        class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800"
+                        :title="grp.sendBlockedReason || 'Grupo inativo para envios'"
+                      >
+                        Bloqueado / Inativo
+                      </span>
+                    </div>
+                    <p v-if="!grp.isActive && grp.sendBlockedReason" class="text-[11px] font-normal text-rose-600 mt-0.5">
+                      {{ grp.sendBlockedReason }}
+                    </p>
+                  </td>
                   <td class="py-3 px-4 font-mono text-xs text-gray-500">{{ grp.jid }}</td>
                   <td class="py-3 px-4 text-gray-600">{{ grp.instance?.displayName }}</td>
                   <td class="py-3 px-4 text-center text-gray-600">
@@ -332,6 +401,14 @@
                   </td>
                   <td class="py-3 px-4 text-right">
                     <div class="inline-flex items-center gap-2">
+                      <button
+                        v-if="!grp.isActive"
+                        data-testid="btn-reactivate-group"
+                        @click="toggleGroupActive(grp, true)"
+                        class="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-xs font-semibold"
+                      >
+                        Reativar
+                      </button>
                       <button
                         @click="openGroupSettingsModal(grp)"
                         class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium"
@@ -588,6 +665,88 @@
           </div>
         </div>
       </div>
+
+      <!-- Modal de Proteção Anti-Ban / Warm-up da Instância -->
+      <div
+        v-if="safetyModalOpen && editingSafetyInstance"
+        class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 flex items-center justify-center p-4"
+      >
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div class="flex items-start justify-between border-b border-gray-100 pb-3">
+            <div>
+              <h4 class="font-bold text-gray-900">Proteção Anti-Ban & Aquecimento</h4>
+              <p class="text-xs text-gray-500 mt-0.5">{{ editingSafetyInstance.displayName }}</p>
+            </div>
+            <button @click="safetyModalOpen = false" class="text-gray-400 hover:text-gray-700 font-bold">✕</button>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Limite Diário Máximo de Mensagens (Instância)</label>
+              <input
+                v-model.number="safetyForm.dailyMessageLimit"
+                data-testid="input-safety-daily-limit"
+                type="number"
+                min="1"
+                max="2000"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+              <p class="text-[11px] text-gray-500 mt-1">
+                Conta mensagens reais enviadas em grupos para proteger o chip mesmo com múltiplas automações.
+              </p>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Cooldown Mínimo Global entre Mensagens (segundos)</label>
+              <input
+                v-model.number="safetyForm.minIntervalSeconds"
+                data-testid="input-safety-min-interval"
+                type="number"
+                min="5"
+                max="300"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+              <p class="text-[11px] text-gray-500 mt-1">
+                Intervalo mínimo obrigatório entre disparos consecutivos nesta instância (recomendado: 15s+).
+              </p>
+            </div>
+
+            <label class="flex items-start gap-2.5 p-3 rounded-xl border border-blue-200 bg-blue-50/70 cursor-pointer">
+              <input
+                v-model="safetyForm.warmUpEnabled"
+                data-testid="input-safety-warmup"
+                type="checkbox"
+                class="mt-0.5 rounded text-shopee-orange focus:ring-shopee-orange"
+              />
+              <div>
+                <span class="font-semibold text-blue-900 block">Ativar Modo Warm-up (Aquecimento Progressivo)</span>
+                <span class="text-[11px] text-blue-700">
+                  Limita chips recém-conectados automaticamente: Dias 1-3 (20/dia), Dias 4-7 (40/dia), Dias 8-14 (70/dia).
+                </span>
+              </div>
+            </label>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <button
+              type="button"
+              @click="safetyModalOpen = false"
+              class="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              data-testid="btn-save-safety-settings"
+              :disabled="savingSafety"
+              @click="saveSafetySettings"
+              class="px-4 py-2 text-xs font-semibold text-white bg-shopee-orange hover:bg-shopee-hover rounded-lg disabled:opacity-50"
+            >
+              {{ savingSafety ? 'Salvando...' : 'Salvar Limites' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </AppLayout>
 </template>
@@ -623,6 +782,15 @@ const editingGroup = ref<any>(null);
 const groupSettingsForm = ref({ inviteUrl: '', maxParticipants: 1024 });
 const fetchingGroupInvite = ref(false);
 const savingGroupSettings = ref(false);
+
+const safetyModalOpen = ref(false);
+const editingSafetyInstance = ref<any>(null);
+const safetyForm = ref({
+  dailyMessageLimit: 100,
+  minIntervalSeconds: 15,
+  warmUpEnabled: false,
+});
+const savingSafety = ref(false);
 
 const hasConnectedInstance = computed(() =>
   instances.value.some((inst) => inst.status === 'CONNECTED'),
@@ -895,6 +1063,87 @@ async function deleteInstance(inst: any) {
 
     showFeedback('Instância removida com sucesso.');
     await loadInstances();
+    await loadGroups();
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  }
+}
+
+function openSafetyModal(inst: any) {
+  editingSafetyInstance.value = inst;
+  safetyForm.value = {
+    dailyMessageLimit: inst.dailyMessageLimit ?? 100,
+    minIntervalSeconds: inst.minIntervalSeconds ?? 15,
+    warmUpEnabled: Boolean(inst.warmUpEnabled),
+  };
+  safetyModalOpen.value = true;
+}
+
+async function saveSafetySettings() {
+  if (!editingSafetyInstance.value) return;
+  savingSafety.value = true;
+  try {
+    const res = await fetch(
+      `/api/whatsapp-instances/${editingSafetyInstance.value.id}/safety-settings`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authStore.accessToken}`,
+        },
+        body: JSON.stringify({
+          dailyMessageLimit: Number(safetyForm.value.dailyMessageLimit) || 100,
+          minIntervalSeconds: Math.max(5, Number(safetyForm.value.minIntervalSeconds) || 15),
+          warmUpEnabled: Boolean(safetyForm.value.warmUpEnabled),
+        }),
+      },
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error?.message || data.message || 'Falha ao salvar limites anti-ban.');
+    }
+    showFeedback('Limites anti-ban da instância atualizados com sucesso!');
+    safetyModalOpen.value = false;
+    await loadInstances();
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  } finally {
+    savingSafety.value = false;
+  }
+}
+
+async function resetCircuitBreaker(inst: any) {
+  try {
+    const res = await fetch(`/api/whatsapp-instances/${inst.id}/reset-circuit`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authStore.accessToken}` },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error?.message || data.message || 'Falha ao resetar Circuit Breaker.');
+    }
+    showFeedback(`Circuit Breaker de '${inst.displayName}' resetado.`);
+    await loadInstances();
+  } catch (err: any) {
+    showFeedback(err.message, true);
+  }
+}
+
+async function toggleGroupActive(grp: any, isActive: boolean) {
+  try {
+    const res = await fetch(`/api/whatsapp-groups/${grp.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.accessToken}`,
+      },
+      body: JSON.stringify({ isActive }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error?.message || data.message || 'Falha ao atualizar grupo.');
+    }
+    showFeedback(isActive ? `Grupo '${grp.name}' reativado.` : `Grupo '${grp.name}' desativado.`);
     await loadGroups();
   } catch (err: any) {
     showFeedback(err.message, true);

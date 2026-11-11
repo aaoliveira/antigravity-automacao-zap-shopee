@@ -114,7 +114,7 @@ describe('Affiliate Coupons CRUD, Multi-Tenancy & Automation Integration (E2E)',
 
     await prisma.whatsAppInstance.update({
       where: { id: tenantA_instanceId },
-      data: { status: InstanceStatus.CONNECTED },
+      data: { status: InstanceStatus.CONNECTED, minIntervalSeconds: 0 },
     });
 
     const grpA = await prisma.whatsAppGroup.create({

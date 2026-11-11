@@ -156,6 +156,7 @@ describe('MVP E2E Master Scenarios (E2E-01 to E2E-09)', () => {
           displayName: 'Instância Promoções A',
           status: InstanceStatus.CONNECTED,
           lastConnectedAt: new Date(),
+          minIntervalSeconds: 0,
         },
       });
 

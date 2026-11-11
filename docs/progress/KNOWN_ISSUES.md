@@ -34,7 +34,7 @@ Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de 
 
 | ID | Data | Risco / Débito Técnico | Severidade | Mitigação Implementada e Comprovada | Status |
 | :--- | :---: | :--- | :---: | :--- | :---: |
-| **RSK-001** | 2026-11-09 | Banimento de instâncias WhatsApp por disparos excessivos | Alta | Jitter/delay configurável entre disparos, limites diários de execução e circuit breaker com status `SKIPPED_INSTANCE_OFFLINE`. | **MITIGADO & TESTADO** |
+| **RSK-001** | 2026-11-11 | Banimento de instâncias WhatsApp por disparos excessivos | Alta | Lock global e cooldown por `instanceId`, limite diário real sobre `Publication` (+ Warm-up progressivo), jitter humanizado aleatório, macro-pausa em lotes, micro-variação de agendamento (`±12%`), Circuit Breaker com aborto imediato de lote e cooldown exponencial, Spintax + `fileName` dinâmico + `delay` oficial, e auto-bloqueio de grupos sem permissão. | **MITIGADO & TESTADO** |
 | **RSK-002** | 2026-11-09 | Vazamento de credenciais da Shopee ou chaves da Evolution | Crítica | Criptografia autenticada em repouso (AES-256-GCM), sanitização de logs com `LoggingInterceptor`, mascaramento no frontend e `reencryptWithNewKey`. | **MITIGADO & TESTADO** |
 | **RSK-003** | 2026-11-09 | Falhas de isolamento multi-tenant em background workers | Crítica | Resolução obrigatória e validação estrita do `tenantId` no payload e no banco em todas as camadas (testado em `security-isolation.e2e-spec.ts`). | **MITIGADO & TESTADO** |
 | **RSK-004** | 2026-11-09 | Tentativa de Server-Side Request Forgery (SSRF) via servidores Evolution e mediaUrl | Alta | Validador `EvolutionSsrfValidator` com bloqueio de loopback, faixas RFC 1918 e metadados de nuvem 169.254. | **MITIGADO & TESTADO** |
