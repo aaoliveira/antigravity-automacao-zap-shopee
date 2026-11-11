@@ -88,6 +88,9 @@
                 <span v-if="auto.groupRedirectLink">
                   Link Permanente: <strong class="text-shopee-orange font-mono">/join/{{ auto.groupRedirectLink.slug }}</strong>
                 </span>
+                <span v-if="auto.coupon">
+                  Cupom Fixo: <strong class="text-emerald-700 font-mono">{{ auto.coupon.code }}</strong>
+                </span>
                 <span>Intervalo: <strong class="text-gray-700">{{ auto.frequencyMinutes }} min</strong></span>
                 <span>Janela: <strong class="text-gray-700">{{ auto.windowStartTime }} - {{ auto.windowEndTime }}</strong></span>
                 <span>Limite Diário: <strong class="text-gray-700">{{ auto.dailyExecutionLimit }} envios</strong></span>
@@ -363,22 +366,54 @@
               </div>
 
               <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-xs font-semibold text-gray-800">
+                    Cupom de Desconto nas Mensagens (Opcional)
+                  </label>
+                  <router-link to="/coupons" class="text-[11px] font-semibold text-shopee-orange hover:underline">
+                    Gerenciar Cupons
+                  </router-link>
+                </div>
+                <select
+                  v-model="wizardData.couponId"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-shopee-orange focus:border-shopee-orange"
+                >
+                  <option value="">Automático (melhor cupom ativo da plataforma)</option>
+                  <option v-for="cp in activeCoupons" :key="cp.id" :value="cp.id">
+                    {{ cp.code }} — {{ formatCouponSummary(cp) }}
+                  </option>
+                </select>
+                <p class="text-[11px] text-gray-500 mt-1">
+                  No modo automático, o robô escolhe o cupom ativo com maior desconto respeitando valor mínimo, validade e palavras-chave.
+                </p>
+              </div>
+
+              <div>
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
                   <label class="block text-xs font-semibold text-gray-800">
                     Modelo de Legenda Personalizado (Opcional)
                   </label>
-                  <button
-                    type="button"
-                    @click="applyGroupLinkCaptionTemplate"
-                    class="text-[11px] font-semibold text-shopee-orange hover:underline"
-                  >
-                    + Inserir modelo com &#123;link_grupo&#125;
-                  </button>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      @click="applyCouponCaptionTemplate"
+                      class="text-[11px] font-semibold text-emerald-700 hover:underline"
+                    >
+                      + Inserir modelo com Cupom
+                    </button>
+                    <button
+                      type="button"
+                      @click="applyGroupLinkCaptionTemplate"
+                      class="text-[11px] font-semibold text-shopee-orange hover:underline"
+                    >
+                      + Inserir modelo com &#123;link_grupo&#125;
+                    </button>
+                  </div>
                 </div>
                 <textarea
                   v-model="wizardData.captionTemplate"
-                  rows="3"
-                  placeholder="Deixe em branco para usar o modelo padrão. Variáveis: {titulo}, {preco}, {link_afiliado}, {link_grupo}"
+                  rows="4"
+                  placeholder="Deixe em branco para modelo padrão. Variáveis: {titulo}, {preco}, {link_afiliado}, {link_grupo}, {{cupom}}, {{cupom_desconto}}, {{preco_com_cupom}}, {{cupom_validade}}"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-shopee-orange focus:border-shopee-orange"
                 ></textarea>
               </div>
@@ -508,6 +543,10 @@
               <p v-if="selectedGroupLinkObj">
                 <strong>Link Permanente de Grupo:</strong> {{ selectedGroupLinkObj.name }} (<code class="font-mono">/join/{{ selectedGroupLinkObj.slug }}</code>)
               </p>
+              <p>
+                <strong>Cupom de Desconto:</strong>
+                {{ selectedCouponObj ? `${selectedCouponObj.code} (${formatCouponSummary(selectedCouponObj)})` : 'Seleção automática (melhor cupom elegível)' }}
+              </p>
               <p><strong>Nichos:</strong> {{ wizardData.keywords.join(', ') }}</p>
               <p><strong>Frequência:</strong> A cada {{ wizardData.frequencyMinutes }} minutos</p>
               <p><strong>Horário de Envio:</strong> Das {{ wizardData.windowStartTime }} às {{ wizardData.windowEndTime }}</p>
@@ -592,6 +631,10 @@
                 Link: <a :href="ex.affiliateLink.shortLink" target="_blank" class="underline">{{ ex.affiliateLink.shortLink }}</a>
               </div>
 
+              <div v-if="ex.appliedCouponCode" class="font-mono text-emerald-700 font-semibold">
+                Cupom aplicado: {{ ex.appliedCouponCode }}
+              </div>
+
               <div v-if="ex.errorMessage" class="text-red-600 italic">
                 Motivo: {{ ex.errorMessage }}
               </div>
@@ -619,6 +662,7 @@ const instances = ref<any[]>([]);
 const credentials = ref<any[]>([]);
 const availableGroups = ref<any[]>([]);
 const groupLinks = ref<any[]>([]);
+const coupons = ref<any[]>([]);
 
 const dispatchStrategyOptions = [
   {
@@ -659,6 +703,7 @@ function createDefaultWizardData() {
     groupIds: [] as string[],
     dispatchStrategy: 'ALL_SEQUENTIAL' as 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE',
     groupRedirectLinkId: '',
+    couponId: '',
     captionTemplate: '',
     frequencyMinutes: 60,
     dailyExecutionLimit: 20,
@@ -706,6 +751,26 @@ const selectedGroupLinkObj = computed(() =>
   groupLinks.value.find((lnk) => lnk.id === wizardData.value.groupRedirectLinkId) || null,
 );
 
+const activeCoupons = computed(() => coupons.value.filter((c) => c.isActive));
+
+const selectedCouponObj = computed(() =>
+  coupons.value.find((c) => c.id === wizardData.value.couponId) || null,
+);
+
+function formatCouponSummary(coupon: any): string {
+  if (coupon.discountType === 'PERCENTAGE') {
+    const pct = Number(coupon.discountValue || 0);
+    const max = coupon.maxDiscountAmount
+      ? ` (até R$ ${Number(coupon.maxDiscountAmount).toFixed(2).replace('.', ',')})`
+      : '';
+    return `${pct}% OFF${max}`;
+  }
+  if (coupon.discountType === 'FIXED_AMOUNT') {
+    return `R$ ${Number(coupon.discountValue || 0).toFixed(2).replace('.', ',')} OFF`;
+  }
+  return 'Apenas código';
+}
+
 function formatDispatchStrategy(strategy?: string) {
   switch (strategy) {
     case 'RANDOM_ORDER':
@@ -720,6 +785,11 @@ function formatDispatchStrategy(strategy?: string) {
 function applyGroupLinkCaptionTemplate() {
   wizardData.value.captionTemplate =
     '🔥 *{titulo}*\n\n💰 Por apenas: *{preco}*\n🛒 Compre agora: {link_afiliado}\n\n📲 Entre no nosso grupo de ofertas (link permanente):\n{link_grupo}';
+}
+
+function applyCouponCaptionTemplate() {
+  wizardData.value.captionTemplate =
+    '*{titulo}*\nPor *{preco}*\nCupom: *{{cupom}}*\nDesconto: {{cupom_desconto}}\nCom cupom: *R$ {{preco_com_cupom}}*\nVálido até {{cupom_validade}}\n\n🛒 {link_afiliado}';
 }
 
 // Modal de Histórico
@@ -769,7 +839,7 @@ async function loadAutomations() {
 
 async function loadDependencies() {
   try {
-    const [instRes, credRes, linksRes] = await Promise.all([
+    const [instRes, credRes, linksRes, couponsRes] = await Promise.all([
       fetch('/api/whatsapp-instances', {
         headers: { Authorization: `Bearer ${authStore.accessToken}` },
       }),
@@ -779,15 +849,20 @@ async function loadDependencies() {
       fetch('/api/group-links', {
         headers: { Authorization: `Bearer ${authStore.accessToken}` },
       }),
+      fetch('/api/coupons', {
+        headers: { Authorization: `Bearer ${authStore.accessToken}` },
+      }),
     ]);
 
     const instData = await instRes.json();
     const credData = await credRes.json();
     const linksData = await linksRes.json();
+    const couponsData = await couponsRes.json();
 
     if (instData.success) instances.value = instData.data;
     if (credData.success) credentials.value = credData.data;
     if (linksData.success) groupLinks.value = linksData.data;
+    if (couponsData.success) coupons.value = couponsData.data;
   } catch (err: any) {
     showFeedback('Falha ao carregar dependências.', true);
   }
@@ -839,6 +914,7 @@ async function openEditWizardModal(auto: any) {
     groupIds: (auto.groups || []).map((g: any) => g.groupId || g.group?.id).filter(Boolean),
     dispatchStrategy: auto.dispatchStrategy || 'ALL_SEQUENTIAL',
     groupRedirectLinkId: auto.groupRedirectLinkId || '',
+    couponId: auto.couponId || '',
     captionTemplate: auto.captionTemplate || '',
     frequencyMinutes: auto.frequencyMinutes ?? 60,
     dailyExecutionLimit: auto.dailyExecutionLimit ?? 20,
@@ -917,6 +993,7 @@ async function handleSaveAutomation() {
       ...wizardData.value,
       name: wizardData.value.name.trim(),
       groupRedirectLinkId: wizardData.value.groupRedirectLinkId || null,
+      couponId: wizardData.value.couponId || null,
       captionTemplate: wizardData.value.captionTemplate?.trim() || null,
     };
 

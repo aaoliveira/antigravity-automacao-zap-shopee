@@ -117,6 +117,16 @@ enum GroupLinkStrategy {
   MANUAL_WITH_FALLBACK
 }
 
+enum AffiliatePlatform {
+  SHOPEE
+}
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  NONE
+}
+
 // ==========================================
 // 1. TENANTS E USUÁRIOS
 // ==========================================
@@ -136,6 +146,7 @@ model Tenant {
   instances          WhatsAppInstance[]
   groups             WhatsAppGroup[]
   groupRedirectLinks GroupRedirectLink[]
+  coupons            Coupon[]
   automations        Automation[]
   executions       AutomationExecution[]
   auditLogs        AuditLog[]
@@ -300,6 +311,30 @@ model GroupRedirectTarget {
   @@map("group_redirect_targets")
 }
 
+model Coupon {
+  id                String             @id @default(uuid()) @db.Uuid
+  tenantId          String             @db.Uuid
+  platform          AffiliatePlatform  @default(SHOPEE)
+  code              String             @db.VarChar(60)
+  discountType      CouponDiscountType @default(PERCENTAGE)
+  discountValue     Decimal?           @db.Decimal(10, 2)
+  maxDiscountAmount Decimal?           @db.Decimal(10, 2)
+  minProductPrice   Decimal?           @db.Decimal(10, 2)
+  expiresAt         DateTime?          @db.Timestamptz
+  sellerRestriction String?            @db.VarChar(150)
+  productKeywords   String[]           @default([])
+  isActive          Boolean            @default(true)
+  usageCount        Int                @default(0)
+  createdAt         DateTime           @default(now()) @db.Timestamptz
+  updatedAt         DateTime           @updatedAt @db.Timestamptz
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  automations       Automation[]
+
+  @@index([tenantId, platform, isActive])
+  @@map("coupons")
+}
+
 // ==========================================
 // 4. AUTOMAÇÕES E AGENDAMENTO
 // ==========================================
@@ -310,6 +345,7 @@ model Automation {
   instanceId           String              @db.Uuid
   shopeeCredentialId   String              @db.Uuid
   groupRedirectLinkId  String?             @db.Uuid
+  couponId             String?             @db.Uuid
   name                 String              @db.VarChar(255)
   status               AutomationStatus    @default(ACTIVE)
   dispatchStrategy     DispatchStrategy    @default(ALL_SEQUENTIAL)
@@ -333,6 +369,7 @@ model Automation {
   instance             WhatsAppInstance    @relation(fields: [instanceId], references: [id], onDelete: Restrict)
   shopeeCredential     ShopeeCredential    @relation(fields: [shopeeCredentialId], references: [id], onDelete: Restrict)
   groupRedirectLink    GroupRedirectLink?  @relation(fields: [groupRedirectLinkId], references: [id], onDelete: SetNull)
+  coupon               Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
   
   keywords             AutomationKeyword[]
   groups               AutomationGroup[]
@@ -378,6 +415,7 @@ model AutomationExecution {
   automationId     String           @db.Uuid
   status           ExecutionStatus  @default(RUNNING)
   selectedKeyword  String?          @db.VarChar(100)
+  appliedCouponCode String?         @db.VarChar(60)
   totalDestinations Int             @default(0)
   successCount     Int              @default(0)
   failureCount     Int              @default(0)

@@ -17,6 +17,17 @@ import { AutomationStatus, DispatchStrategy } from '@prisma/client';
 @Injectable()
 export class AutomationsService {
   private readonly logger = new Logger(AutomationsService.name);
+  private readonly couponSummarySelect = {
+    id: true,
+    code: true,
+    platform: true,
+    discountType: true,
+    discountValue: true,
+    maxDiscountAmount: true,
+    minProductPrice: true,
+    expiresAt: true,
+    isActive: true,
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -68,6 +79,9 @@ export class AutomationsService {
             isActive: true,
             strategy: true,
           },
+        },
+        coupon: {
+          select: this.couponSummarySelect,
         },
         keywords: {
           select: { id: true, keyword: true },
@@ -123,6 +137,9 @@ export class AutomationsService {
             isActive: true,
             strategy: true,
           },
+        },
+        coupon: {
+          select: this.couponSummarySelect,
         },
         keywords: {
           select: { id: true, keyword: true },
@@ -189,6 +206,10 @@ export class AutomationsService {
       await this.validateGroupRedirectLink(tenantId, dto.groupRedirectLinkId);
     }
 
+    if (dto.couponId) {
+      await this.validateCoupon(tenantId, dto.couponId);
+    }
+
     // 4. Calcula o próximo horário de execução agendado
     const nextExecutionAt = this.schedulerService.calculateNextExecution(
       {
@@ -208,6 +229,7 @@ export class AutomationsService {
         instanceId: dto.instanceId,
         shopeeCredentialId: dto.shopeeCredentialId,
         groupRedirectLinkId: dto.groupRedirectLinkId || null,
+        couponId: dto.couponId || null,
         dispatchStrategy: (dto.dispatchStrategy || 'ALL_SEQUENTIAL') as DispatchStrategy,
         captionTemplate: dto.captionTemplate?.trim() || null,
         status: AutomationStatus.ACTIVE,
@@ -232,6 +254,7 @@ export class AutomationsService {
         groupRedirectLink: {
           select: { id: true, name: true, slug: true, isActive: true, strategy: true },
         },
+        coupon: { select: this.couponSummarySelect },
       },
     });
 
@@ -297,6 +320,10 @@ export class AutomationsService {
       await this.validateGroupRedirectLink(tenantId, dto.groupRedirectLinkId);
     }
 
+    if (dto.couponId) {
+      await this.validateCoupon(tenantId, dto.couponId);
+    }
+
     // Recalcula próxima execução se horários foram alterados
     const frequencyMinutes = dto.frequencyMinutes ?? existing.frequencyMinutes;
     const windowStartTime = dto.windowStartTime ?? existing.windowStartTime;
@@ -339,6 +366,10 @@ export class AutomationsService {
             dto.groupRedirectLinkId !== undefined
               ? dto.groupRedirectLinkId
               : existing.groupRedirectLinkId,
+          couponId:
+            dto.couponId !== undefined
+              ? dto.couponId
+              : existing.couponId,
           dispatchStrategy: (dto.dispatchStrategy ?? existing.dispatchStrategy) as DispatchStrategy,
           captionTemplate:
             dto.captionTemplate !== undefined
@@ -359,6 +390,7 @@ export class AutomationsService {
           groupRedirectLink: {
             select: { id: true, name: true, slug: true, isActive: true, strategy: true },
           },
+          coupon: { select: this.couponSummarySelect },
         },
       });
     });
@@ -526,5 +558,17 @@ export class AutomationsService {
       );
     }
     return link;
+  }
+
+  private async validateCoupon(tenantId: string, couponId: string) {
+    const coupon = await this.prisma.coupon.findFirst({
+      where: { id: couponId, tenantId },
+    });
+    if (!coupon) {
+      throw new BadRequestException(
+        'O cupom informado não pertence a este tenant.',
+      );
+    }
+    return coupon;
   }
 }

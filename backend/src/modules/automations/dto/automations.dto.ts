@@ -90,6 +90,10 @@ export class CreateAutomationDto {
   groupRedirectLinkId?: string | null;
 
   @IsOptional()
+  @IsUUID()
+  couponId?: string | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
   captionTemplate?: string | null;
@@ -167,6 +171,10 @@ export class UpdateAutomationDto {
   @IsOptional()
   @IsUUID()
   groupRedirectLinkId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  couponId?: string | null;
 
   @IsOptional()
   @IsString()

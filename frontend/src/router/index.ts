@@ -9,6 +9,7 @@ import AutomationsView from '../views/AutomationsView.vue';
 import HistoryView from '../views/HistoryView.vue';
 import SettingsView from '../views/SettingsView.vue';
 import JoinGroupRedirectView from '../views/JoinGroupRedirectView.vue';
+import CouponsView from '../views/CouponsView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -63,6 +64,12 @@ const router = createRouter({
       path: '/history',
       name: 'history',
       component: HistoryView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/coupons',
+      name: 'coupons',
+      component: CouponsView,
       meta: { requiresAuth: true },
     },
     {

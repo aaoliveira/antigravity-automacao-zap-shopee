@@ -225,3 +225,17 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 1 suite, 9 testes passando (`7.7s`).
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`130` módulos frontend em `2.10s`) sem erros.
 
+### 2026-11-11 — Módulo de Cupons por Plataforma de Afiliados e Aplicação em Automações
+- **Entregáveis:**
+  - [`backend/prisma/schema.prisma`](../../backend/prisma/schema.prisma) e migration `20261111132644_add_affiliate_coupons`: Enums `AffiliatePlatform` (`SHOPEE`) e `CouponDiscountType` (`PERCENTAGE`, `FIXED_AMOUNT`, `NONE`), modelo `Coupon` isolado por `tenantId`, vínculo opcional `Automation.couponId` e auditoria `AutomationExecution.appliedCouponCode`.
+  - [`backend/src/modules/coupons/`](../../backend/src/modules/coupons/coupons.module.ts): `CouponsModule`, `CouponsController`, `CouponsService`, `dto/coupons.dto.ts` e `coupon-matcher.ts` com CRUD multi-tenant (limite de 50 cupons/organização), endpoint `/api/coupons/platforms` e algoritmo de seleção do maior desconto respeitando valor mínimo, validade, vendedor e palavras-chave (com desempate favorável a cupons restritos).
+  - [`backend/src/modules/evolution/evolution.client.ts`](../../backend/src/modules/evolution/evolution.client.ts) e [`backend/src/modules/automations/automations-executor.service.ts`](../../backend/src/modules/automations/automations-executor.service.ts): Suporte às variáveis `{cupom}` / `{{cupom}}`, `{{cupom_desconto}}`, `{{preco_com_cupom}}` e `{{cupom_validade}}`, remoção automática de linhas sem cupom aplicável, seleção automática ou cupom fixo na automação e incremento de `usageCount`.
+  - [`frontend/src/views/CouponsView.vue`](../../frontend/src/views/CouponsView.vue), [`frontend/src/components/AppLayout.vue`](../../frontend/src/components/AppLayout.vue), [`frontend/src/router/index.ts`](../../frontend/src/router/index.ts), [`frontend/src/views/AutomationsView.vue`](../../frontend/src/views/AutomationsView.vue) e [`frontend/src/views/HistoryView.vue`](../../frontend/src/views/HistoryView.vue): Tela `Cupons` com lista, filtros, preview "Você escreve / Chega no WhatsApp", modal "Novo cupom / Editar cupom" adaptado ao design atual do sistema e integração no Wizard/Histórico de Automações.
+  - Documentação: [`docs/architecture/decisions/ADR-007-cupons-afiliados-e-aplicacao-em-automacoes.md`](../architecture/decisions/ADR-007-cupons-afiliados-e-aplicacao-em-automacoes.md), [`docs/architecture/DATABASE_SCHEMA.md`](../architecture/DATABASE_SCHEMA.md) e [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md).
+  - Testes adicionados: [`backend/src/modules/coupons/coupons.service.spec.ts`](../../backend/src/modules/coupons/coupons.service.spec.ts) (10 testes unitários), [`backend/src/modules/evolution/evolution.client.spec.ts`](../../backend/src/modules/evolution/evolution.client.spec.ts) (+2 unitários), [`backend/test/coupons.e2e-spec.ts`](../../backend/test/coupons.e2e-spec.ts) (5 cenários E2E) e [`frontend/e2e/app.spec.ts`](../../frontend/e2e/app.spec.ts) (+1 Playwright E2E).
+- **Testes Consolidados Após Alteração (199 testes aprovados — 0 falhas):**
+  - Backend Unit Tests: 9 suites, 68 testes passando (`5.328s`).
+  - Backend E2E Tests: 12 suites, 121 testes passando (`16.708s`).
+  - Frontend E2E (Playwright): 1 suite, 10 testes passando (`9.6s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`132` módulos frontend em `2.17s`) sem erros.
+

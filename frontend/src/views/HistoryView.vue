@@ -112,6 +112,12 @@
                       <p class="text-shopee-orange font-bold">
                         R$ {{ Number(ex.productSnapshot.price).toFixed(2).replace('.', ',') }}
                       </p>
+                      <span
+                        v-if="ex.appliedCouponCode"
+                        class="inline-block mt-0.5 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-mono font-semibold"
+                      >
+                        Cupom: {{ ex.appliedCouponCode }}
+                      </span>
                     </div>
                   </div>
                   <span v-else class="text-gray-400 italic">Nenhum produto selecionado</span>

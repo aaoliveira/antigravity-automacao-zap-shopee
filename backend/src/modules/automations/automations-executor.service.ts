@@ -10,7 +10,9 @@ import { ShopeeClientService } from '../shopee/shopee.client';
 import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { WhatsAppGroupsService } from '../evolution/whatsapp-groups.service';
 import { AutomationsSchedulerService } from './automations-scheduler.service';
+import { CouponsService } from '../coupons/coupons.service';
 import {
+  AffiliatePlatform,
   AutomationStatus,
   DispatchStrategy,
   ExecutionStatus,
@@ -30,6 +32,7 @@ export class AutomationsExecutorService {
     private readonly cryptoVault: CryptoVaultService,
     private readonly whatsappGroupsService: WhatsAppGroupsService,
     private readonly schedulerService: AutomationsSchedulerService,
+    private readonly couponsService?: CouponsService,
   ) {}
 
   /**
@@ -271,12 +274,26 @@ export class AutomationsExecutorService {
           ? `${publicBaseUrl}/join/${automation.groupRedirectLink.slug}`
           : undefined;
 
+      // Seleção automática do melhor cupom elegível da plataforma (ou cupom específico vinculado)
+      const matchedCoupon = this.couponsService
+        ? await this.couponsService.selectForExecution(
+            tenantId,
+            AffiliatePlatform.SHOPEE,
+            {
+              title: selectedProduct.title,
+              price: selectedProduct.price,
+            },
+            automation.couponId,
+          )
+        : null;
+
       const execution = await this.prisma.automationExecution.create({
         data: {
           tenantId,
           automationId,
           status: ExecutionStatus.RUNNING,
           selectedKeyword,
+          appliedCouponCode: matchedCoupon?.vars.cupom || null,
           totalDestinations,
           productSnapshot: {
             create: {
@@ -336,6 +353,10 @@ export class AutomationsExecutorService {
                 preco: formattedPrice,
                 link_afiliado: shortLinkUrl,
                 link_grupo: permanentGroupUrl,
+                cupom: matchedCoupon?.vars.cupom,
+                cupom_desconto: matchedCoupon?.vars.cupom_desconto,
+                preco_com_cupom: matchedCoupon?.vars.preco_com_cupom,
+                cupom_validade: matchedCoupon?.vars.cupom_validade,
               },
             },
           );
@@ -391,6 +412,10 @@ export class AutomationsExecutorService {
           completedAt: new Date(),
         },
       });
+
+      if (matchedCoupon && successCount > 0 && this.couponsService) {
+        await this.couponsService.incrementUsage(matchedCoupon.coupon.id);
+      }
 
       this.updateNextExecution(automation);
 

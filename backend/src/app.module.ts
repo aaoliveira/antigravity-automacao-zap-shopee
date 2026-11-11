@@ -14,6 +14,7 @@ import { EvolutionModule } from './modules/evolution/evolution.module';
 import { AutomationsModule } from './modules/automations/automations.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HistoryModule } from './modules/history/history.module';
+import { CouponsModule } from './modules/coupons/coupons.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -42,6 +43,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     AutomationsModule,
     DashboardModule,
     HistoryModule,
+    CouponsModule,
   ],
   providers: [
     {

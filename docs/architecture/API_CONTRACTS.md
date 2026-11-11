@@ -138,3 +138,17 @@
 | Método | Rota | Descrição | Auth | Códigos HTTP |
 | :---: | :--- | :--- | :---: | :---: |
 | `POST` | `/api/webhooks/evolution` | Recebe eventos `CONNECTION_UPDATE` e `QRCODE_UPDATED` | Header Secreto | `200`, `401` |
+
+---
+
+### 2.9 Cupons por Plataforma de Afiliados (`/api/coupons`)
+
+| Método | Rota | Descrição | Auth | Códigos HTTP |
+| :---: | :--- | :--- | :---: | :---: |
+| `GET` | `/api/coupons/platforms` | Lista plataformas de afiliados integradas no sistema (`SHOPEE`) | JWT | `200` |
+| `GET` | `/api/coupons` | Lista cupons do tenant com busca e filtros (`platform`, `isActive`) | JWT | `200` |
+| `POST` | `/api/coupons` | Cadastra novo cupom com regras de uso e limite de 50/tenant | JWT | `201`, `400` |
+| `GET` | `/api/coupons/:id` | Detalhes de cupom isolado ao tenant | JWT | `200`, `404` |
+| `PUT` | `/api/coupons/:id` | Atualiza benefícios, regras ou restrições do cupom | JWT | `200`, `400`, `404` |
+| `PATCH` | `/api/coupons/:id/toggle` | Alterna ativação/inativação do cupom | JWT | `200`, `404` |
+| `DELETE` | `/api/coupons/:id` | Exclui cupom pertencente ao tenant | JWT | `200`, `404` |

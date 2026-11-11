@@ -247,4 +247,42 @@ describe('Evolution API - Unit Tests', () => {
       );
     });
   });
+
+  describe('formatCaption - Cupons e Variáveis Dinâmicas', () => {
+    it('deve substituir variáveis com chaves simples e duplas quando houver cupom aplicável', () => {
+      const rendered = client.formatCaption(
+        '*{titulo}*\nDe R$ 199,90 por *{preco}*\nCupom: *{{cupom}}*\nDesconto: {{cupom_desconto}}\nCom cupom: *R$ {{preco_com_cupom}}*\nVálido até {{cupom_validade}}\n\n{link_afiliado}',
+        {
+          titulo: 'Fone Bluetooth TWS',
+          preco: 'R$ 149,90',
+          link_afiliado: 'https://shope.ee/exemplo',
+          cupom: 'FONE10',
+          cupom_desconto: '10% OFF (até R$ 20,00)',
+          preco_com_cupom: '134,91',
+          cupom_validade: '15/10',
+        },
+      );
+
+      expect(rendered).toContain('Cupom: *FONE10*');
+      expect(rendered).toContain('Desconto: 10% OFF (até R$ 20,00)');
+      expect(rendered).toContain('Com cupom: *R$ 134,91*');
+      expect(rendered).toContain('Válido até 15/10');
+      expect(rendered).toContain('https://shope.ee/exemplo');
+    });
+
+    it('deve remover automaticamente as linhas com variáveis de cupom não preenchidas', () => {
+      const rendered = client.formatCaption(
+        '*{titulo}*\nPreço: {preco}\nCupom: *{{cupom}}*\nDesconto: {{cupom_desconto}}\nCom cupom: *R$ {{preco_com_cupom}}*\nVálido até {{cupom_validade}}\nConfira: {link_afiliado}',
+        {
+          titulo: 'Carregador Rápido USB-C',
+          preco: 'R$ 59,90',
+          link_afiliado: 'https://shope.ee/usb',
+        },
+      );
+
+      expect(rendered).toBe(
+        '*Carregador Rápido USB-C*\nPreço: R$ 59,90\nConfira: https://shope.ee/usb',
+      );
+    });
+  });
 });

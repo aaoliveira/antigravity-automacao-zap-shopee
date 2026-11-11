@@ -40,6 +40,10 @@ export interface CaptionTemplateParams {
   preco: string;
   link_afiliado: string;
   link_grupo?: string;
+  cupom?: string;
+  cupom_desconto?: string;
+  preco_com_cupom?: string;
+  cupom_validade?: string;
 }
 
 export const DEFAULT_CAPTION_TEMPLATE = `Oferta encontrada!
@@ -50,28 +54,74 @@ Preço: {preco}
 
 Confira: {link_afiliado}`;
 
+const COUPON_TEMPLATE_VARS = [
+  'cupom',
+  'cupom_desconto',
+  'preco_com_cupom',
+  'cupom_validade',
+] as const;
+
 @Injectable()
 export class EvolutionClient {
   private readonly logger = new Logger(EvolutionClient.name);
   private readonly defaultTimeoutMs = 15000;
 
   /**
-   * Formata a legenda da mensagem substituindo as variáveis homologadas:
-   * {titulo}, {preco}, {link_afiliado}, {link_grupo}
+   * Formata a legenda da mensagem substituindo variáveis homologadas ({var} e {{var}}):
+   * titulo, preco, link_afiliado, link_grupo, cupom, cupom_desconto, preco_com_cupom, cupom_validade.
+   * Linhas contendo variáveis de cupom sem valor aplicável são removidas automaticamente.
    */
   formatCaption(template: string | undefined | null, params: CaptionTemplateParams): string {
     const hasCustomTemplate = Boolean(template && template.trim().length > 0);
     let rawTemplate = hasCustomTemplate ? template! : DEFAULT_CAPTION_TEMPLATE;
 
+    if (!hasCustomTemplate && params.cupom) {
+      const couponLines: string[] = [`Cupom: *${params.cupom}*`];
+      if (params.cupom_desconto) {
+        couponLines.push(`Desconto: ${params.cupom_desconto}`);
+      }
+      if (params.preco_com_cupom) {
+        couponLines.push(`Com cupom: *R$ ${params.preco_com_cupom}*`);
+      }
+      if (params.cupom_validade) {
+        couponLines.push(`Válido até ${params.cupom_validade}`);
+      }
+      rawTemplate = `${rawTemplate}\n\n${couponLines.join('\n')}`;
+    }
+
     if (!hasCustomTemplate && params.link_grupo) {
       rawTemplate = `${rawTemplate}\n\nEntre no nosso grupo: {link_grupo}`;
     }
 
-    return rawTemplate
-      .replace(/\{titulo\}/g, params.titulo || '')
-      .replace(/\{preco\}/g, params.preco || '')
-      .replace(/\{link_afiliado\}/g, params.link_afiliado || '')
-      .replace(/\{link_grupo\}/g, params.link_grupo || '');
+    const varValues: Record<string, string> = {
+      titulo: params.titulo || '',
+      preco: params.preco || '',
+      link_afiliado: params.link_afiliado || '',
+      link_grupo: params.link_grupo || '',
+      cupom: params.cupom || '',
+      cupom_desconto: params.cupom_desconto || '',
+      preco_com_cupom: params.preco_com_cupom || '',
+      cupom_validade: params.cupom_validade || '',
+    };
+
+    const processedLines = rawTemplate.split(/\r?\n/).filter((line) => {
+      for (const couponVar of COUPON_TEMPLATE_VARS) {
+        const tokenPattern = new RegExp(`\\{\\{?${couponVar}\\}?\\}`);
+        if (tokenPattern.test(line) && !varValues[couponVar]) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    let rendered = processedLines.join('\n');
+    for (const [key, val] of Object.entries(varValues)) {
+      rendered = rendered
+        .replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val)
+        .replace(new RegExp(`\\{${key}\\}`, 'g'), val);
+    }
+
+    return rendered.replace(/\n{3,}/g, '\n\n').trim();
   }
 
   /**

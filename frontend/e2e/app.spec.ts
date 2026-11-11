@@ -143,6 +143,25 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
         body: JSON.stringify({ success: true, data: [] }),
       });
     });
+
+    await page.route('**/api/coupons/platforms', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: 'SHOPEE', name: 'Shopee', label: 'Shopee Afiliados' }],
+        }),
+      });
+    });
+
+    await page.route('**/api/coupons', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: [], meta: { total: 0, maxLimit: 50 } }),
+      });
+    });
   });
 
   test('Deve redirecionar visitante não autenticado para /login ao tentar acessar rotas protegidas', async ({ page }) => {
@@ -574,7 +593,7 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await expect(page.locator('text=Estratégia de Randomização dos Disparos')).toBeVisible();
     await page.locator('label:has-text("Achadinhos 1") input[type="checkbox"]').check();
     await page.locator('label:has-text("1 Grupo Aleatório")').click();
-    await page.locator('select').last().selectOption('lnk-vip');
+    await page.locator('select').first().selectOption('lnk-vip');
     await page.click('button:has-text("+ Inserir modelo com {link_grupo}")');
 
     await expect(page.locator('textarea')).toHaveValue(/\{link_grupo\}/);
@@ -742,5 +761,154 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await editedCard.locator('button:has-text("Excluir")').click();
     await expect(page.locator('text=Automação excluída com sucesso.')).toBeVisible();
     await expect(page.locator('h5:has-text("Automação Pausada Editada")')).toHaveCount(0);
+  });
+
+  test('Módulo de Cupons: CRUD por plataforma existente (Shopee), preview WhatsApp e uso no Wizard de Automação', async ({ page }) => {
+    const couponsStore: any[] = [];
+
+    await page.route('**/api/coupons', async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON();
+        const created = {
+          id: 'cp-e2e-1',
+          ...body,
+          isActive: true,
+          usageCount: 0,
+        };
+        couponsStore.splice(0, couponsStore.length, created);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: created }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: couponsStore,
+          meta: { total: couponsStore.length, maxLimit: 50 },
+        }),
+      });
+    });
+
+    await page.route('**/api/coupons/cp-e2e-1/toggle', async (route) => {
+      couponsStore[0].isActive = !couponsStore[0].isActive;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: couponsStore[0] }),
+      });
+    });
+
+    await page.route('**/api/coupons/cp-e2e-1', async (route) => {
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON();
+        couponsStore[0] = { ...couponsStore[0], ...body };
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: couponsStore[0] }),
+        });
+        return;
+      }
+      if (route.request().method() === 'DELETE') {
+        couponsStore.splice(0, 1);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, message: 'Excluído' }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 405 });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    // Navega via menu lateral para Cupons
+    await page.click('nav a:has-text("Cupons")');
+    await expect(page).toHaveURL(/.*coupons/);
+    await expect(page.locator('text=Nenhum cupom cadastrado.')).toBeVisible();
+    await expect(page.locator('text=VOCÊ ESCREVE')).toBeVisible();
+    await expect(page.locator('text=CHEGA NO WHATSAPP')).toBeVisible();
+
+    // Abre modal Novo cupom
+    await page.click('button:has-text("+ Novo cupom")');
+    await expect(page.locator('h3:has-text("Novo cupom")')).toBeVisible();
+    await expect(page.locator('button:has-text("Shopee")')).toBeVisible();
+
+    await page.fill('input[placeholder="Ex: PROMO10"]', 'PROMO10');
+    await page.fill('input[placeholder="Ex: 10"]', '10');
+    await page.locator('input[placeholder="Ex: 50.00"]').nth(0).fill('20');
+    await page.locator('input[placeholder="Ex: 50.00"]').nth(1).fill('50');
+    await page.fill('input[placeholder="Ex: fone, caixa de som, headset"]', 'fone, headset');
+
+    await page.click('button:has-text("Salvar cupom")');
+    await expect(page.locator('text=Cupom cadastrado com sucesso!')).toBeVisible();
+    await expect(page.locator('text=1 de 50 cadastrados')).toBeVisible();
+    await expect(page.getByText('PROMO10', { exact: true })).toBeVisible();
+
+    // Edita cupom
+    await page.click('button:has-text("Editar")');
+    await page.fill('input[placeholder="Ex: PROMO10"]', 'PROMO15');
+    await page.click('button:has-text("Salvar cupom")');
+    await expect(page.locator('text=Cupom atualizado com sucesso!')).toBeVisible();
+    await expect(page.getByText('PROMO15', { exact: true })).toBeVisible();
+
+    // Alterna status e exclui
+    await page.click('button:has-text("Desativar")');
+    await expect(page.locator('text=desativado')).toBeVisible();
+
+    await page.click('button:has-text("Ativar")');
+    await expect(page.locator('text=ativado')).toBeVisible();
+
+    // Integra no Wizard de Automação
+    await page.route('**/api/shopee-credentials', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: [{ id: 'c1', label: 'Shopee', appId: '1001' }] }),
+      });
+    });
+    await page.route('**/api/whatsapp-instances', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: 'i1', displayName: 'Zap Cupom', instanceName: 'zap-cp', status: 'CONNECTED' }],
+        }),
+      });
+    });
+    await page.route('**/api/whatsapp-groups?instanceId=i1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [{ id: 'g1', name: 'Grupo Cupom', jid: '123@g.us', participantCount: 10 }],
+        }),
+      });
+    });
+
+    await page.goto('/automations');
+    await page.click('button:has-text("Nova Automação (Wizard)")');
+    await page.fill('input[placeholder="Ex: Ofertas Achadinhos Casa & Cozinha"]', 'Automação com Cupom');
+    await page.locator('select').first().selectOption('c1');
+    await page.click('button:has-text("Próxima Etapa")');
+    await page.locator('label:has-text("Zap Cupom")').click();
+    await page.click('button:has-text("Próxima Etapa")');
+
+    await page.locator('select').last().selectOption('cp-e2e-1');
+    await page.click('button:has-text("+ Inserir modelo com Cupom")');
+    await expect(page.locator('textarea')).toHaveValue(/\{\{cupom\}\}/);
   });
 });
