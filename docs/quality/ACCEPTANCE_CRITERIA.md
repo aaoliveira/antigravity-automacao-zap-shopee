@@ -150,3 +150,10 @@ Todos os Requisitos Funcionais (RF-01 a RF-16) possuem critérios de aceite obje
 - [x] **AC-RF18-03 (Item 3):** Erros fatais de sessão (`401`, `Connection Closed`, `logged out`, `banned`) ou `429`/rate-limit acionam o Circuit Breaker da Evolution API, abortando os demais envios do lote, aplicando cooldown exponencial (`15m -> 30m -> 60m`) e exibindo alerta no Dashboard com reset manual.
 - [x] **AC-RF18-04 (Item 4):** `EvolutionClient.formatCaption` suporta Spintax (`{a|b}`) sem colidir com `{titulo}` ou `{{cupom}}`, e `WhatsAppGroupsService.sendMediaToGroup` envia `fileName` dinâmico e `delay` oficial em ms (`https://docs.evolutionfoundation.com.br/evolution-api`).
 - [x] **AC-RF18-05 (Item 5):** Sincronização persiste `isAnnounceOnly`/`isRestricted`, erros permanentes de grupo auto-desativam apenas o grupo afetado, e a UI expõe proteção anti-ban, badges de permissão e Termômetro de Risco no Wizard.
+
+---
+
+### RF-19: Edição dos Dados Cadastrais do Usuário e Senha
+- [x] **AC-RF19-01:** Usuário autenticado pode atualizar nome, e-mail (mediante senha atual e verificação de unicidade), nome da organização e fuso horário IANA (restritos a `OWNER`/`ADMIN`) via `PATCH /api/auth/me`, com renovação de JWT e gravação em `AuditLog`.
+- [x] **AC-RF19-02:** Alteração de senha (`PATCH /api/auth/me/password`) valida senha atual, exige complexidade mínima (8 caracteres, maiúscula, minúscula e número), rejeita repetição da mesma senha e re-hasheia com `bcryptjs`.
+- [x] **AC-RF19-03:** `SettingsView.vue` permite editar perfil/organização e senha mantendo estado sincronizado no `useAuthStore` e sidebar.

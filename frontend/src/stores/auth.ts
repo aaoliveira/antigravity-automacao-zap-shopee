@@ -103,6 +103,35 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    async updateProfile(data: {
+      name?: string;
+      email?: string;
+      tenantName?: string;
+      timezone?: string;
+      currentPassword?: string;
+    }) {
+      const response = await api.patch('/auth/me', data);
+      if (response.data.success) {
+        const { user, tenant, accessToken, refreshToken } = response.data.data;
+        if (user) this.user = user;
+        if (tenant) this.tenant = tenant;
+        if (accessToken) {
+          this.accessToken = accessToken;
+          localStorage.setItem('access_token', accessToken);
+        }
+        if (refreshToken) {
+          this.refreshToken = refreshToken;
+          localStorage.setItem('refresh_token', refreshToken);
+        }
+      }
+      return response.data;
+    },
+
+    async changePassword(data: { currentPassword: string; newPassword: string }) {
+      const response = await api.patch('/auth/me/password', data);
+      return response.data;
+    },
+
     logout() {
       this.user = null;
       this.tenant = null;

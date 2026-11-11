@@ -301,3 +301,16 @@ Todos os 11 prompts previstos no plano mestre de entrega (`Prompts_MVP_Shopee_Wh
   - Frontend E2E (Playwright): 12 testes passando (`12.6s`).
   - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.28s`) sem erros.
 
+### 2026-11-11 — Edição de Dados do Cadastro do Usuário, Organização e Senha
+- **Entregáveis:**
+  - [`backend/src/modules/auth/dto/auth.dto.ts`](../../backend/src/modules/auth/dto/auth.dto.ts), [`auth.service.ts`](../../backend/src/modules/auth/auth.service.ts) e [`auth.controller.ts`](../../backend/src/modules/auth/auth.controller.ts): Endpoints `PATCH /api/auth/me` (`name`, `email`, `tenantName`, `timezone`, exigindo `currentPassword` e unicidade ao alterar e-mail, restrição `OWNER`/`ADMIN` para dados da organização, validação de fuso horário IANA, rotação de JWT e gravação em `AuditLog`) e `PATCH /api/auth/me/password` (validação de senha atual, bloqueio de senha repetida e re-hash `bcryptjs` com registro em `AuditLog`).
+  - [`frontend/src/stores/auth.ts`](../../frontend/src/stores/auth.ts) e [`frontend/src/views/SettingsView.vue`](../../frontend/src/views/SettingsView.vue): Formulários reativos em **Configurações** para edição de perfil/operação (com exibição condicional de confirmação por senha ao alterar e-mail e atualização imediata do estado/tokens) e alteração de senha.
+  - Documentação: [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md) e [`docs/quality/ACCEPTANCE_CRITERIA.md`](../quality/ACCEPTANCE_CRITERIA.md) (`RF-19`).
+  - Testes adicionados: [`backend/src/modules/auth/auth.service.spec.ts`](../../backend/src/modules/auth/auth.service.spec.ts) (5 unitários), [`backend/test/auth.e2e-spec.ts`](../../backend/test/auth.e2e-spec.ts) (+1 cenário E2E completo cobrindo `PATCH /me`, mass-assignment, troca de e-mail e senha) e [`frontend/e2e/app.spec.ts`](../../frontend/e2e/app.spec.ts) (+1 Playwright E2E).
+- **Testes Consolidados Após Alteração (260 testes aprovados — 0 falhas):**
+  - Extensão Chrome (`node --test`): 4 testes passando (`69.40ms`).
+  - Backend Unit Tests (`jest`): 13 suites, 112 testes passando (`9.485s`).
+  - Backend E2E Tests (`jest --runInBand`): 13 suites, 131 testes passando (`23.013s`).
+  - Frontend E2E (Playwright): 13 testes passando (`12.5s`).
+  - Build (`backend` + `frontend`): `nest build` + `vue-tsc && vite build` (`134` módulos frontend em `2.27s`) sem erros.
+

@@ -1420,4 +1420,120 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await jitterInput.fill('0');
     await expect(page.getByTestId('antiban-risk-meter')).toContainText('Risco Moderado');
   });
+
+  test('Configurações: permite editar dados do cadastro do usuário (nome, organização, fuso horário, e-mail) e alterar senha', async ({ page }) => {
+    const profileState = {
+      user: {
+        id: 'usr-1',
+        name: testUser.name,
+        email: testUser.email,
+        role: 'OWNER',
+      },
+      tenant: {
+        id: 'tnt-1',
+        name: testUser.tenantName,
+        slug: 'afiliados-vip',
+        timezone: 'America/Sao_Paulo',
+      },
+    };
+
+    await page.route('**/api/auth/me', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON();
+        if (body.name) profileState.user.name = body.name;
+        if (body.email) profileState.user.email = body.email;
+        if (body.tenantName) profileState.tenant.name = body.tenantName;
+        if (body.timezone) profileState.tenant.timezone = body.timezone;
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              user: profileState.user,
+              tenant: profileState.tenant,
+              accessToken: 'updated-jwt-token',
+              refreshToken: 'updated-refresh-token',
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            userId: profileState.user.id,
+            name: profileState.user.name,
+            email: profileState.user.email,
+            role: profileState.user.role,
+            tenantId: profileState.tenant.id,
+            tenant: profileState.tenant,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/auth/me/password', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { message: 'Senha alterada com sucesso.' },
+        }),
+      });
+    });
+
+    await page.route('**/api/feature-flags', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { items: [] } }),
+      });
+    });
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    await page.click('nav a:has-text("Configurações")');
+    await expect(page).toHaveURL(/.*settings/);
+
+    // Edita nome, organização e fuso horário sem mudar e-mail
+    await expect(page.getByTestId('input-profile-name')).toHaveValue(testUser.name);
+    await page.getByTestId('input-profile-name').fill('Alexandre Editado');
+    await page.getByTestId('input-profile-tenant-name').fill('Minha Operação Editada');
+    await page.getByTestId('select-profile-timezone').selectOption('America/Manaus');
+    await page.getByTestId('btn-save-profile').click();
+
+    await expect(page.getByTestId('profile-feedback')).toContainText('Dados do cadastro atualizados com sucesso!');
+    await expect(page.locator('aside')).toContainText('Alexandre Editado');
+
+    // Altera e-mail -> campo de senha atual deve aparecer e confirmar troca
+    await page.getByTestId('input-profile-email').fill('novo.alexandre@teste.com');
+    await expect(page.getByTestId('input-profile-current-password')).toBeVisible();
+    await page.getByTestId('input-profile-current-password').fill(testUser.password);
+    await page.getByTestId('btn-save-profile').click();
+
+    await expect(page.getByTestId('profile-feedback')).toContainText('Dados do cadastro atualizados com sucesso!');
+    await expect(page.locator('aside')).toContainText('novo.alexandre@teste.com');
+
+    // Altera senha (primeiro valida erro de confirmação divergente, depois sucesso)
+    await page.getByTestId('input-change-current-password').fill(testUser.password);
+    await page.getByTestId('input-change-new-password').fill('NovaSenha99!');
+    await page.getByTestId('input-change-confirm-password').fill('Diferente99!');
+    await page.getByTestId('btn-save-password').click();
+    await expect(page.getByTestId('password-feedback')).toContainText('não conferem');
+
+    await page.getByTestId('input-change-confirm-password').fill('NovaSenha99!');
+    await page.getByTestId('btn-save-password').click();
+    await expect(page.getByTestId('password-feedback')).toContainText('Senha alterada com sucesso!');
+  });
 });

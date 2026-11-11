@@ -1,14 +1,23 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   UnauthorizedException,
-  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { RegisterDto, LoginDto, RefreshTokenDto, RecoverPasswordDto } from './dto/auth.dto';
+import {
+  RegisterDto,
+  LoginDto,
+  RefreshTokenDto,
+  RecoverPasswordDto,
+  UpdateProfileDto,
+  ChangePasswordDto,
+} from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -78,21 +87,7 @@ export class AuthService {
       result.user.role,
     );
 
-    return {
-      user: {
-        id: result.user.id,
-        name: result.user.name,
-        email: result.user.email,
-        role: result.user.role,
-      },
-      tenant: {
-        id: result.tenant.id,
-        name: result.tenant.name,
-        slug: result.tenant.slug,
-        timezone: result.tenant.timezone,
-      },
-      ...tokens,
-    };
+    return this.formatAuthSession(result.user, result.tenant, tokens);
   }
 
   async login(dto: LoginDto) {
@@ -116,21 +111,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
 
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
-      tenant: {
-        id: user.tenant.id,
-        name: user.tenant.name,
-        slug: user.tenant.slug,
-        timezone: user.tenant.timezone,
-      },
-      ...tokens,
-    };
+    return this.formatAuthSession(user, user.tenant, tokens);
   }
 
   async refreshTokens(dto: RefreshTokenDto) {
@@ -172,6 +153,224 @@ export class AuthService {
 
     return {
       message: 'Se o email estiver cadastrado, as instruções de recuperação foram enviadas.',
+    };
+  }
+
+  /**
+   * Atualiza os dados cadastrais do usuário autenticado (nome, e-mail) e, se OWNER/ADMIN,
+   * os dados da organização (nome do tenant e fuso horário IANA).
+   */
+  async updateProfile(userId: string, tenantId: string, dto: UpdateProfileDto) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      include: { tenant: true },
+    });
+
+    if (!user || !user.isActive || !user.tenant.isActive) {
+      throw new UnauthorizedException('Usuário ou organização inativos ou inexistentes.');
+    }
+
+    const userUpdateData: { name?: string; email?: string } = {};
+    const tenantUpdateData: { name?: string; timezone?: string } = {};
+    const changedFields: string[] = [];
+
+    if (dto.name !== undefined) {
+      const cleanName = dto.name.trim();
+      if (cleanName.length < 2) {
+        throw new BadRequestException('Nome deve ter no mínimo 2 caracteres.');
+      }
+      if (cleanName !== user.name) {
+        userUpdateData.name = cleanName;
+        changedFields.push('name');
+      }
+    }
+
+    if (dto.email !== undefined) {
+      const cleanEmail = dto.email.toLowerCase().trim();
+      if (cleanEmail !== user.email) {
+        if (!dto.currentPassword) {
+          throw new BadRequestException(
+            'Informe sua senha atual para confirmar a alteração de e-mail.',
+          );
+        }
+        const passwordMatch = await bcrypt.compare(
+          dto.currentPassword,
+          user.passwordHash,
+        );
+        if (!passwordMatch) {
+          throw new BadRequestException('Senha atual incorreta.');
+        }
+
+        const existingEmail = await this.prisma.user.findFirst({
+          where: { email: cleanEmail, id: { not: user.id } },
+        });
+        if (existingEmail) {
+          throw new ConflictException('Email já cadastrado no sistema.');
+        }
+
+        userUpdateData.email = cleanEmail;
+        changedFields.push('email');
+      }
+    }
+
+    const wantsTenantEdit =
+      (dto.tenantName !== undefined && dto.tenantName.trim() !== user.tenant.name) ||
+      (dto.timezone !== undefined && dto.timezone.trim() !== user.tenant.timezone);
+
+    if (wantsTenantEdit) {
+      if (user.role !== UserRole.OWNER && user.role !== UserRole.ADMIN) {
+        throw new ForbiddenException(
+          'Apenas proprietários ou administradores podem alterar dados da organização.',
+        );
+      }
+
+      if (dto.tenantName !== undefined) {
+        const cleanTenantName = dto.tenantName.trim();
+        if (cleanTenantName.length < 2) {
+          throw new BadRequestException(
+            'Nome da organização / tenant deve ter no mínimo 2 caracteres.',
+          );
+        }
+        if (cleanTenantName !== user.tenant.name) {
+          tenantUpdateData.name = cleanTenantName;
+          changedFields.push('tenantName');
+        }
+      }
+
+      if (dto.timezone !== undefined) {
+        const cleanTimezone = dto.timezone.trim();
+        try {
+          Intl.DateTimeFormat(undefined, { timeZone: cleanTimezone });
+        } catch {
+          throw new BadRequestException(
+            `Fuso horário '${cleanTimezone}' inválido. Utilize um identificador IANA válido (ex: America/Sao_Paulo).`,
+          );
+        }
+        if (cleanTimezone !== user.tenant.timezone) {
+          tenantUpdateData.timezone = cleanTimezone;
+          changedFields.push('timezone');
+        }
+      }
+    }
+
+    const { updatedUser, updatedTenant } = await this.prisma.$transaction(
+      async (tx) => {
+        const nextUser =
+          Object.keys(userUpdateData).length > 0
+            ? await tx.user.update({
+                where: { id: user.id },
+                data: userUpdateData,
+              })
+            : user;
+
+        const nextTenant =
+          Object.keys(tenantUpdateData).length > 0
+            ? await tx.tenant.update({
+                where: { id: user.tenantId },
+                data: tenantUpdateData,
+              })
+            : user.tenant;
+
+        if (changedFields.length > 0) {
+          await tx.auditLog.create({
+            data: {
+              tenantId: user.tenantId,
+              userId: user.id,
+              action: 'USER_PROFILE_UPDATED',
+              entityType: 'User',
+              entityId: user.id,
+              metadataJson: { changedFields },
+            },
+          });
+        }
+
+        return { updatedUser: nextUser, updatedTenant: nextTenant };
+      },
+    );
+
+    const tokens = await this.generateTokens(
+      updatedUser.id,
+      updatedUser.email,
+      updatedTenant.id,
+      updatedUser.role,
+    );
+
+    return this.formatAuthSession(updatedUser, updatedTenant, tokens);
+  }
+
+  /**
+   * Altera a senha do usuário autenticado validando previamente a senha atual.
+   */
+  async changePassword(
+    userId: string,
+    tenantId: string,
+    dto: ChangePasswordDto,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      include: { tenant: true },
+    });
+
+    if (!user || !user.isActive || !user.tenant.isActive) {
+      throw new UnauthorizedException('Usuário ou organização inativos ou inexistentes.');
+    }
+
+    const isCurrentValid = await bcrypt.compare(
+      dto.currentPassword,
+      user.passwordHash,
+    );
+    if (!isCurrentValid) {
+      throw new BadRequestException('Senha atual incorreta.');
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException(
+        'A nova senha deve ser diferente da senha atual.',
+      );
+    }
+
+    const newPasswordHash = await bcrypt.hash(dto.newPassword, this.saltRounds);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { passwordHash: newPasswordHash },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: user.tenantId,
+          userId: user.id,
+          action: 'USER_PASSWORD_CHANGED',
+          entityType: 'User',
+          entityId: user.id,
+          metadataJson: { changedAt: new Date().toISOString() },
+        },
+      });
+    });
+
+    return { message: 'Senha alterada com sucesso.' };
+  }
+
+  private formatAuthSession(
+    user: { id: string; name: string; email: string; role: string },
+    tenant: { id: string; name: string; slug: string; timezone: string },
+    tokens: { accessToken: string; refreshToken: string },
+  ) {
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        timezone: tenant.timezone,
+      },
+      ...tokens,
     };
   }
 

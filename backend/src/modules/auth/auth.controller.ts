@@ -2,15 +2,23 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RefreshTokenDto, RecoverPasswordDto } from './dto/auth.dto';
+import {
+  RegisterDto,
+  LoginDto,
+  RefreshTokenDto,
+  RecoverPasswordDto,
+  UpdateProfileDto,
+  ChangePasswordDto,
+} from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, TenantId } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -67,6 +75,36 @@ export class AuthController {
     return {
       success: true,
       data: user,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(
+    @CurrentUser('userId') userId: string,
+    @TenantId() tenantId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    const result = await this.authService.updateProfile(userId, tenantId, dto);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @CurrentUser('userId') userId: string,
+    @TenantId() tenantId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const result = await this.authService.changePassword(userId, tenantId, dto);
+    return {
+      success: true,
+      data: result,
     };
   }
 

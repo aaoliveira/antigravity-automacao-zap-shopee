@@ -58,6 +58,8 @@
 | `POST` | `/api/auth/login` | Login com email/senha e emissão de JWT com `tenantId` | Pública | `200`, `401` |
 | `POST` | `/api/auth/logout` | Invalidação de sessão local | JWT | `200` |
 | `GET` | `/api/auth/me` | Dados do usuário logado e metadados do tenant | JWT | `200`, `401` |
+| `PATCH` | `/api/auth/me` | Atualiza dados cadastrais (`name`, `email` [exige `currentPassword`], `tenantName`, `timezone`) | JWT | `200`, `400`, `403`, `409` |
+| `PATCH` | `/api/auth/me/password` | Altera senha do usuário autenticado validando senha atual | JWT | `200`, `400` |
 
 ---
 

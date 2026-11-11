@@ -145,4 +145,88 @@ describe('Auth e2e Tests', () => {
 
     expect(res.body.success).toBe(true);
   });
+
+  it('/api/auth/me (PATCH) - deve rejeitar campos não autorizados (userId/role) e validar senha ao trocar e-mail', async () => {
+    // Rejeita tentativa de alterar tenantId / role via mass-assignment (400 forbidNonWhitelisted)
+    await request(app.getHttpServer())
+      .patch('/api/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ name: 'Hacker', role: 'ADMIN', tenantId: '00000000-0000-0000-0000-000000000000' })
+      .expect(400);
+
+    // Atualiza nome, organização e fuso horário com sucesso
+    const updateProfileRes = await request(app.getHttpServer())
+      .patch('/api/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        name: 'Afiliado Editado E2E',
+        tenantName: 'Operação Editada E2E',
+        timezone: 'America/Fortaleza',
+      })
+      .expect(200);
+
+    expect(updateProfileRes.body.success).toBe(true);
+    expect(updateProfileRes.body.data.user.name).toBe('Afiliado Editado E2E');
+    expect(updateProfileRes.body.data.tenant.name).toBe('Operação Editada E2E');
+    expect(updateProfileRes.body.data.tenant.timezone).toBe('America/Fortaleza');
+
+    // Troca de e-mail exige senha atual (400 se ausente)
+    const updatedEmail = `editado-${Date.now()}@teste.com`;
+    await request(app.getHttpServer())
+      .patch('/api/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ email: updatedEmail })
+      .expect(400);
+
+    // Troca de e-mail com senha atual válida retorna sessão e novo JWT
+    const updateEmailRes = await request(app.getHttpServer())
+      .patch('/api/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        email: updatedEmail,
+        currentPassword: testUser.password,
+      })
+      .expect(200);
+
+    expect(updateEmailRes.body.data.user.email).toBe(updatedEmail);
+    accessToken = updateEmailRes.body.data.accessToken;
+
+    const meAfterRes = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(meAfterRes.body.data.email).toBe(updatedEmail);
+    expect(meAfterRes.body.data.name).toBe('Afiliado Editado E2E');
+    expect(meAfterRes.body.data.tenant.timezone).toBe('America/Fortaleza');
+
+    // Altera senha validando senha atual
+    await request(app.getHttpServer())
+      .patch('/api/auth/me/password')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        currentPassword: 'SenhaErrada99!',
+        newPassword: 'NovaSenha789!',
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .patch('/api/auth/me/password')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        currentPassword: testUser.password,
+        newPassword: 'NovaSenha789!',
+      })
+      .expect(200);
+
+    // Senha antiga deve falhar no login (401) e nova senha deve funcionar (200)
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: updatedEmail, password: testUser.password })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: updatedEmail, password: 'NovaSenha789!' })
+      .expect(200);
+  });
 });
