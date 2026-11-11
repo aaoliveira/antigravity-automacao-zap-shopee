@@ -218,9 +218,12 @@ describe('Coupons Module & Matching Engine - Unit Tests', () => {
   });
 
   describe('CouponsService CRUD, Multi-Tenancy e Validações', () => {
-    it('deve retornar plataformas existentes no sistema (SHOPEE)', () => {
+    it('deve retornar plataformas existentes no sistema (SHOPEE e MERCADO_LIVRE)', () => {
       const platforms = service.getPlatforms();
-      expect(platforms.map((p) => p.id)).toEqual([AffiliatePlatform.SHOPEE]);
+      expect(platforms.map((p) => p.id)).toEqual([
+        AffiliatePlatform.SHOPEE,
+        AffiliatePlatform.MERCADO_LIVRE,
+      ]);
     });
 
     it('deve bloquear cadastro acima do limite de 50 cupons por tenant', async () => {

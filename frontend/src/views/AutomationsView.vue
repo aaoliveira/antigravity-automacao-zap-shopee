@@ -227,7 +227,7 @@
 
           <!-- ETAPA 1: INFORMAÇÕES BÁSICAS -->
           <div v-if="wizardStep === 1" class="space-y-4">
-            <h4 class="font-semibold text-gray-800 text-sm">Etapa 1: Dados da Automação e Credencial Shopee</h4>
+            <h4 class="font-semibold text-gray-800 text-sm">Etapa 1: Dados da Automação, Plataforma e Credencial</h4>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Nome da Automação</label>
               <input
@@ -238,7 +238,34 @@
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:ring-shopee-orange focus:border-shopee-orange"
               />
             </div>
+
             <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5">Plataforma de Afiliados</label>
+              <div class="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  @click="selectWizardPlatform('SHOPEE')"
+                  :class="wizardData.platform === 'SHOPEE' ? 'border-shopee-orange bg-orange-50 text-shopee-orange font-bold' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
+                  class="px-3 py-2.5 border rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  🛍️ Shopee Afiliados
+                </button>
+                <button
+                  type="button"
+                  @click="selectWizardPlatform('MERCADO_LIVRE')"
+                  :disabled="!hasMlPlatformEnabled"
+                  :class="wizardData.platform === 'MERCADO_LIVRE' ? 'border-shopee-orange bg-orange-50 text-shopee-orange font-bold' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
+                  class="px-3 py-2.5 border rounded-lg text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  🤝 Mercado Livre
+                </button>
+              </div>
+              <p v-if="!hasMlPlatformEnabled" class="text-[11px] text-amber-700 mt-1">
+                Integração Mercado Livre desabilitada nas Feature Flags.
+              </p>
+            </div>
+
+            <div v-if="wizardData.platform === 'SHOPEE'">
               <label class="block text-sm font-medium text-gray-700 mb-1">Credencial Shopee Afiliados</label>
               <select
                 v-model="wizardData.shopeeCredentialId"
@@ -250,6 +277,25 @@
                   {{ c.label }} (AppID: {{ c.appId }})
                 </option>
               </select>
+            </div>
+
+            <div v-else>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Conta Mercado Livre Afiliados</label>
+              <select
+                v-model="wizardData.mercadoLivreAccountId"
+                required
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm bg-white focus:ring-shopee-orange focus:border-shopee-orange"
+              >
+                <option value="" disabled>Selecione a conta Mercado Livre</option>
+                <option v-for="ml in mlAccounts" :key="ml.id" :value="ml.id">
+                  {{ ml.label }}
+                  {{ ml.affiliateTag ? `• Tag: ${ml.affiliateTag}` : '' }}
+                  {{ ml.mlNickname ? `• OAuth: ${ml.mlNickname}` : '' }}
+                </option>
+              </select>
+              <p v-if="mlAccounts.length === 0" class="text-xs text-amber-700 mt-1">
+                Configure sua conta em <router-link to="/mercadolivre" class="underline font-semibold">Integrações → Mercado Livre</router-link>.
+              </p>
             </div>
           </div>
 
@@ -685,6 +731,16 @@ const dispatchStrategyOptions = [
 const isLoading = ref(false);
 const feedbackMessage = ref('');
 const feedbackIsError = ref(false);
+const mlAccounts = ref<any[]>([]);
+const mlFeatureFlags = ref({
+  ml_alternative_b_enabled: true,
+  ml_alternative_a_enabled: false,
+});
+const hasMlPlatformEnabled = computed(
+  () =>
+    mlFeatureFlags.value.ml_alternative_b_enabled ||
+    mlFeatureFlags.value.ml_alternative_a_enabled,
+);
 
 // Wizard Modal
 const wizardOpen = ref(false);
@@ -696,9 +752,11 @@ const wizardStepLabels = ['Informações', 'Instância', 'Grupos', 'Nichos', 'Ag
 
 function createDefaultWizardData() {
   return {
+    platform: 'SHOPEE' as 'SHOPEE' | 'MERCADO_LIVRE',
     name: '',
     instanceId: '',
     shopeeCredentialId: '',
+    mercadoLivreAccountId: '',
     keywords: [] as string[],
     groupIds: [] as string[],
     dispatchStrategy: 'ALL_SEQUENTIAL' as 'ALL_SEQUENTIAL' | 'RANDOM_ORDER' | 'RANDOM_SINGLE',
@@ -751,7 +809,11 @@ const selectedGroupLinkObj = computed(() =>
   groupLinks.value.find((lnk) => lnk.id === wizardData.value.groupRedirectLinkId) || null,
 );
 
-const activeCoupons = computed(() => coupons.value.filter((c) => c.isActive));
+const activeCoupons = computed(() =>
+  coupons.value.filter(
+    (c) => c.isActive && (!c.platform || c.platform === wizardData.value.platform),
+  ),
+);
 
 const selectedCouponObj = computed(() =>
   coupons.value.find((c) => c.id === wizardData.value.couponId) || null,
@@ -839,7 +901,7 @@ async function loadAutomations() {
 
 async function loadDependencies() {
   try {
-    const [instRes, credRes, linksRes, couponsRes] = await Promise.all([
+    const [instRes, credRes, linksRes, couponsRes, mlRes] = await Promise.all([
       fetch('/api/whatsapp-instances', {
         headers: { Authorization: `Bearer ${authStore.accessToken}` },
       }),
@@ -852,17 +914,27 @@ async function loadDependencies() {
       fetch('/api/coupons', {
         headers: { Authorization: `Bearer ${authStore.accessToken}` },
       }),
+      fetch('/api/mercadolivre/status', {
+        headers: { Authorization: `Bearer ${authStore.accessToken}` },
+      }),
     ]);
 
     const instData = await instRes.json();
     const credData = await credRes.json();
     const linksData = await linksRes.json();
     const couponsData = await couponsRes.json();
+    const mlData = mlRes.ok ? await mlRes.json() : null;
 
     if (instData.success) instances.value = instData.data;
     if (credData.success) credentials.value = credData.data;
     if (linksData.success) groupLinks.value = linksData.data;
     if (couponsData.success) coupons.value = couponsData.data;
+    if (mlData?.success && mlData?.data) {
+      mlAccounts.value = mlData.data.accounts || [];
+      if (mlData.data.featureFlags) {
+        mlFeatureFlags.value = mlData.data.featureFlags;
+      }
+    }
   } catch (err: any) {
     showFeedback('Falha ao carregar dependências.', true);
   }
@@ -907,9 +979,11 @@ async function openEditWizardModal(auto: any) {
   lastSelectedInstanceId.value = auto.instanceId || '';
   wizardStep.value = 1;
   wizardData.value = {
+    platform: (auto.platform || 'SHOPEE') as 'SHOPEE' | 'MERCADO_LIVRE',
     name: auto.name || '',
     instanceId: auto.instanceId || '',
     shopeeCredentialId: auto.shopeeCredentialId || '',
+    mercadoLivreAccountId: auto.mercadoLivreAccountId || '',
     keywords: (auto.keywords || []).map((k: any) => k.keyword),
     groupIds: (auto.groups || []).map((g: any) => g.groupId || g.group?.id).filter(Boolean),
     dispatchStrategy: auto.dispatchStrategy || 'ALL_SEQUENTIAL',
@@ -944,10 +1018,22 @@ async function handleInstanceSelection(instanceId: string) {
   await loadGroupsForInstance(instanceId);
 }
 
+function selectWizardPlatform(platform: 'SHOPEE' | 'MERCADO_LIVRE') {
+  if (wizardData.value.platform === platform) return;
+  wizardData.value.platform = platform;
+  wizardData.value.couponId = '';
+}
+
 function validateStep(step: number): string | null {
   if (step === 1) {
     if (!wizardData.value.name.trim()) return 'Informe o nome da automação.';
-    if (!wizardData.value.shopeeCredentialId) return 'Selecione a credencial Shopee.';
+    if (wizardData.value.platform === 'MERCADO_LIVRE') {
+      if (!wizardData.value.mercadoLivreAccountId) {
+        return 'Selecione a conta do Mercado Livre.';
+      }
+    } else if (!wizardData.value.shopeeCredentialId) {
+      return 'Selecione a credencial Shopee.';
+    }
   } else if (step === 2) {
     if (!wizardData.value.instanceId) return 'Selecione a instância WhatsApp.';
   } else if (step === 3) {
@@ -992,6 +1078,14 @@ async function handleSaveAutomation() {
     const payload = {
       ...wizardData.value,
       name: wizardData.value.name.trim(),
+      shopeeCredentialId:
+        wizardData.value.platform === 'SHOPEE'
+          ? wizardData.value.shopeeCredentialId
+          : null,
+      mercadoLivreAccountId:
+        wizardData.value.platform === 'MERCADO_LIVRE'
+          ? wizardData.value.mercadoLivreAccountId
+          : null,
       groupRedirectLinkId: wizardData.value.groupRedirectLinkId || null,
       couponId: wizardData.value.couponId || null,
       captionTemplate: wizardData.value.captionTemplate?.trim() || null,

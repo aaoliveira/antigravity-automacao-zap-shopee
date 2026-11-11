@@ -3,7 +3,7 @@
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation (MVP)  
 > **Metodologia:** Spec-Driven Development (SDD)  
 > **Status:** Ativo  
-> **Última Atualização:** 2026-11-10  
+> **Última Atualização:** 2026-11-11  
 
 Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de contratos formais de APIs externas, dependências de credenciais de produção e restrições conhecidas das plataformas de terceiros.
 
@@ -15,6 +15,7 @@ Este arquivo é a fonte oficial de rastreamento para impedimentos, ausência de 
 | :--- | :---: | :--- | :--- | :--- | :--- | :---: |
 | **BLK-001** | 2026-11-09 | Validação de endpoint oficial Shopee para listagem de categorias vs listagem de ofertas | Shopee Open API (`Prompt 02`) | Definição de como o usuário filtrará produtos nas automações | **RESOLVIDO via DEC-001:** Shopee opera via `productOfferV2(keyword: ...)`. Usuário configura palavras-chave/nichos por automação. | **RESOLVIDO** |
 | **BLK-002** | 2026-11-09 | Compatibilidade do provider Baileys da Evolution API para envio de mensagens com mídia e listagem de grupos | Evolution API (`Prompt 02`/`06`) | Garantir que o envio de imagem + legenda funcione em instâncias WhatsApp | **RESOLVIDO via DEC-002:** Confirmado suporte a `POST /message/sendMedia` com JSON (imagem via URL + legenda) e `GET /group/fetchAllGroups`. | **RESOLVIDO** |
+| **BLK-003** | 2026-11-11 | Ausência de API oficial pública/documentada do Programa de Afiliados do Mercado Livre para geração programática de links rastreados (`meli.la`) via credenciais de desenvolvedor | Integração Mercado Livre Afiliados | Busca de produtos existe oficialmente via OAuth 2.0 (`/sites/MLB/search`), porém não há endpoint oficial documentado em `developers.mercadolivre.com.br` para criar/encurtar links de afiliado. | **TRATADO via DEC-005 (`ADR-008`):** Implementadas Alternativa B (`ml_alternative_b_enabled=true`, sessão/extensão do navegador do usuário e gateway homologado opcional sem engenharia reversa especulativa no backend) e Alternativa A (`ml_alternative_a_enabled=false`, OAuth 2.0 oficial + fila assistida de links `meli.la`). | **PARCIAL / MITIGADO** |
 
 ---
 

@@ -15,6 +15,10 @@ import {
 } from 'class-validator';
 
 export class CreateAutomationDto {
+  @IsOptional()
+  @IsIn(['SHOPEE', 'MERCADO_LIVRE'])
+  platform?: 'SHOPEE' | 'MERCADO_LIVRE' = 'SHOPEE';
+
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -23,9 +27,13 @@ export class CreateAutomationDto {
   @IsNotEmpty()
   instanceId: string;
 
+  @IsOptional()
   @IsUUID()
-  @IsNotEmpty()
-  shopeeCredentialId: string;
+  shopeeCredentialId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  mercadoLivreAccountId?: string | null;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -101,6 +109,10 @@ export class CreateAutomationDto {
 
 export class UpdateAutomationDto {
   @IsOptional()
+  @IsIn(['SHOPEE', 'MERCADO_LIVRE'])
+  platform?: 'SHOPEE' | 'MERCADO_LIVRE';
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   name?: string;
@@ -111,7 +123,11 @@ export class UpdateAutomationDto {
 
   @IsOptional()
   @IsUUID()
-  shopeeCredentialId?: string;
+  shopeeCredentialId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  mercadoLivreAccountId?: string | null;
 
   @IsOptional()
   @IsArray()

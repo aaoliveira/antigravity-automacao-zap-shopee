@@ -5,6 +5,8 @@ import { ShopeeModule } from '../shopee/shopee.module';
 import { CryptoVaultModule } from '../crypto-vault/crypto-vault.module';
 import { EvolutionModule } from '../evolution/evolution.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { MercadoLivreModule } from '../mercadolivre/mercadolivre.module';
+import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 
 import { AutomationsService } from './automations.service';
 import { AutomationsSchedulerService } from './automations-scheduler.service';
@@ -20,6 +22,8 @@ import { AutomationsController } from './automations.controller';
     CryptoVaultModule,
     EvolutionModule,
     CouponsModule,
+    MercadoLivreModule,
+    FeatureFlagsModule,
   ],
   controllers: [AutomationsController],
   providers: [

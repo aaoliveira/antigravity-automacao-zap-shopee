@@ -119,6 +119,7 @@ enum GroupLinkStrategy {
 
 enum AffiliatePlatform {
   SHOPEE
+  MERCADO_LIVRE
 }
 
 enum CouponDiscountType {
@@ -140,9 +141,12 @@ model Tenant {
   createdAt        DateTime @default(now()) @db.Timestamptz
   updatedAt        DateTime @updatedAt @db.Timestamptz
 
-  users            User[]
-  shopeeCredentials ShopeeCredential[]
-  evolutionServers EvolutionServer[]
+  users                User[]
+  shopeeCredentials    ShopeeCredential[]
+  mercadoLivreAccounts MercadoLivreAccount[]
+  mercadoLivreOffers   MercadoLivreOffer[]
+  featureFlags         FeatureFlag[]
+  evolutionServers     EvolutionServer[]
   instances          WhatsAppInstance[]
   groups             WhatsAppGroup[]
   groupRedirectLinks GroupRedirectLink[]
@@ -336,16 +340,98 @@ model Coupon {
 }
 
 // ==========================================
+// 3B. FEATURE FLAGS & INTEGRAÇÃO MERCADO LIVRE
+// ==========================================
+
+model FeatureFlag {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  key             String   @db.VarChar(100) // ex: ml_alternative_b_enabled (true), ml_alternative_a_enabled (false)
+  enabled         Boolean
+  updatedByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("feature_flags")
+}
+
+model MercadoLivreAccount {
+  id                            String               @id @default(uuid()) @db.Uuid
+  tenantId                      String               @db.Uuid
+  label                         String               @default("Conta Mercado Livre") @db.VarChar(100)
+  affiliateTag                  String?              @db.VarChar(120)
+  sessionCookieEncrypted        String?              @db.Text // AES-256-GCM
+  sessionCookieMasked           String?              @db.VarChar(80)
+  sessionExpiresAt              DateTime?            @db.Timestamptz
+  partnerGatewayUrl             String?              @db.VarChar(500)
+  partnerGatewayApiKeyEncrypted String?              @db.Text // AES-256-GCM
+  partnerGatewayApiKeyMasked    String?              @db.VarChar(80)
+  extensionTokenEncrypted       String?              @db.Text
+  oauthAppId                    String?              @db.VarChar(120)
+  oauthClientSecretEncrypted    String?              @db.Text // AES-256-GCM
+  oauthClientSecretMasked       String?              @db.VarChar(80)
+  oauthRedirectUri              String?              @db.VarChar(500)
+  oauthAccessTokenEncrypted     String?              @db.Text // AES-256-GCM
+  oauthRefreshTokenEncrypted    String?              @db.Text // AES-256-GCM
+  oauthTokenExpiresAt           DateTime?            @db.Timestamptz
+  mlUserId                      String?              @db.VarChar(80)
+  mlNickname                    String?              @db.VarChar(150)
+  isOAuthConnected              Boolean              @default(false)
+  isActive                      Boolean              @default(true)
+  createdAt                     DateTime             @default(now()) @db.Timestamptz
+  updatedAt                     DateTime             @updatedAt @db.Timestamptz
+
+  tenant                        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  offers                        MercadoLivreOffer[]
+  automations                   Automation[]
+
+  @@index([tenantId])
+  @@map("mercado_livre_accounts")
+}
+
+model MercadoLivreOffer {
+  id                String               @id @default(uuid()) @db.Uuid
+  tenantId          String               @db.Uuid
+  accountId         String?              @db.Uuid
+  mlItemId          String?              @db.VarChar(80)
+  title             String               @db.VarChar(500)
+  price             Decimal              @db.Decimal(10, 2)
+  originalPrice     Decimal?             @db.Decimal(10, 2)
+  imageUrl          String               @db.VarChar(1000)
+  originalUrl       String               @db.VarChar(1000)
+  affiliateShortUrl String               @db.VarChar(500)
+  sellerName        String?              @db.VarChar(150)
+  keyword           String?              @db.VarChar(100)
+  isActive          Boolean              @default(true)
+  lastPublishedAt   DateTime?            @db.Timestamptz
+  createdAt         DateTime             @default(now()) @db.Timestamptz
+  updatedAt         DateTime             @updatedAt @db.Timestamptz
+
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account           MercadoLivreAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, mlItemId])
+  @@map("mercado_livre_offers")
+}
+
+// ==========================================
 // 4. AUTOMAÇÕES E AGENDAMENTO
 // ==========================================
 
 model Automation {
-  id                   String              @id @default(uuid()) @db.Uuid
-  tenantId             String              @db.Uuid
-  instanceId           String              @db.Uuid
-  shopeeCredentialId   String              @db.Uuid
-  groupRedirectLinkId  String?             @db.Uuid
-  couponId             String?             @db.Uuid
+  id                    String               @id @default(uuid()) @db.Uuid
+  tenantId              String               @db.Uuid
+  platform              AffiliatePlatform    @default(SHOPEE)
+  instanceId            String               @db.Uuid
+  shopeeCredentialId    String?              @db.Uuid
+  mercadoLivreAccountId String?              @db.Uuid
+  groupRedirectLinkId   String?              @db.Uuid
+  couponId              String?              @db.Uuid
   name                 String              @db.VarChar(255)
   status               AutomationStatus    @default(ACTIVE)
   dispatchStrategy     DispatchStrategy    @default(ALL_SEQUENTIAL)
@@ -365,9 +451,10 @@ model Automation {
   createdAt            DateTime            @default(now()) @db.Timestamptz
   updatedAt            DateTime            @updatedAt @db.Timestamptz
 
-  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  instance             WhatsAppInstance    @relation(fields: [instanceId], references: [id], onDelete: Restrict)
-  shopeeCredential     ShopeeCredential    @relation(fields: [shopeeCredentialId], references: [id], onDelete: Restrict)
+  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instance              WhatsAppInstance     @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+  shopeeCredential      ShopeeCredential?    @relation(fields: [shopeeCredentialId], references: [id], onDelete: Restrict)
+  mercadoLivreAccount   MercadoLivreAccount? @relation(fields: [mercadoLivreAccountId], references: [id], onDelete: Restrict)
   groupRedirectLink    GroupRedirectLink?  @relation(fields: [groupRedirectLinkId], references: [id], onDelete: SetNull)
   coupon               Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
   

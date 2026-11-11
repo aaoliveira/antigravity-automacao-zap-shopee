@@ -10,6 +10,7 @@ import HistoryView from '../views/HistoryView.vue';
 import SettingsView from '../views/SettingsView.vue';
 import JoinGroupRedirectView from '../views/JoinGroupRedirectView.vue';
 import CouponsView from '../views/CouponsView.vue';
+import MercadoLivreView from '../views/MercadoLivreView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -46,6 +47,12 @@ const router = createRouter({
       path: '/shopee-credentials',
       name: 'shopee-credentials',
       component: ShopeeCredentialsView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mercadolivre',
+      name: 'mercadolivre',
+      component: MercadoLivreView,
       meta: { requiresAuth: true },
     },
     {

@@ -145,10 +145,41 @@
 
 | Método | Rota | Descrição | Auth | Códigos HTTP |
 | :---: | :--- | :--- | :---: | :---: |
-| `GET` | `/api/coupons/platforms` | Lista plataformas de afiliados integradas no sistema (`SHOPEE`) | JWT | `200` |
+| `GET` | `/api/coupons/platforms` | Lista plataformas de afiliados integradas no sistema (`SHOPEE`, `MERCADO_LIVRE`) | JWT | `200` |
 | `GET` | `/api/coupons` | Lista cupons do tenant com busca e filtros (`platform`, `isActive`) | JWT | `200` |
 | `POST` | `/api/coupons` | Cadastra novo cupom com regras de uso e limite de 50/tenant | JWT | `201`, `400` |
 | `GET` | `/api/coupons/:id` | Detalhes de cupom isolado ao tenant | JWT | `200`, `404` |
 | `PUT` | `/api/coupons/:id` | Atualiza benefícios, regras ou restrições do cupom | JWT | `200`, `400`, `404` |
 | `PATCH` | `/api/coupons/:id/toggle` | Alterna ativação/inativação do cupom | JWT | `200`, `404` |
 | `DELETE` | `/api/coupons/:id` | Exclui cupom pertencente ao tenant | JWT | `200`, `404` |
+
+---
+
+### 2.10 Feature Flags por Tenant (`/api/feature-flags`)
+
+| Método | Rota | Descrição | Auth | Códigos HTTP |
+| :---: | :--- | :--- | :---: | :---: |
+| `GET` | `/api/feature-flags` | Retorna estado das flags do tenant (`ml_alternative_b_enabled=true`, `ml_alternative_a_enabled=false` por padrão) | JWT | `200` |
+| `PATCH` | `/api/feature-flags` | Habilita ou desabilita alternativamente `ml_alternative_b_enabled` e `ml_alternative_a_enabled` com trilha de auditoria | JWT | `200`, `400` |
+
+---
+
+### 2.11 Mercado Livre Afiliados Híbrido (`/api/mercadolivre`)
+
+| Método | Rota | Descrição | Auth / Flag | Códigos HTTP |
+| :---: | :--- | :--- | :---: | :---: |
+| `GET` | `/api/mercadolivre/status` | Retorna feature flags ativas e resumo mascarado das contas ML do tenant | JWT | `200` |
+| `POST` | `/api/mercadolivre/prototype/config` | Salva tag, cookies cifrados (TTL 14 dias) e Gateway Homologado (com proteção anti-SSRF) | JWT + `Alt B` | `201`, `400`, `403` |
+| `DELETE` | `/api/mercadolivre/prototype/config` | Remove cookies e tag da Alternativa B pertencentes ao tenant | JWT + `Alt B` | `200`, `403` |
+| `POST` | `/api/mercadolivre/prototype/pairing-token` | Gera token temporário assinado HMAC-SHA256 (15 min) para pareamento no navegador | JWT + `Alt B` | `201`, `403` |
+| `POST` | `/api/mercadolivre/prototype/test-conversion` | Valida URL ML e aciona Gateway Homologado ou informa `OFFICIAL_CONTRACT_REQUIRED` | JWT + `Alt B` | `200`, `400`, `403` |
+| `POST` | `/api/mercadolivre/extension/sync` | Recebe sincronização do conector/extensão do usuário validada via HMAC pairing token | HMAC Token + `Alt B` | `200`, `400`, `403`, `404` |
+| `POST` | `/api/mercadolivre/oauth/credentials` | Salva App ID, Client Secret cifrado e Redirect URI oficial Mercado Livre Developers | JWT + `Alt A` | `201`, `400`, `403` |
+| `GET` | `/api/mercadolivre/oauth/authorize-url` | Gera URL oficial `auth.mercadolivre.com.br/authorization` com `state` HMAC | JWT + `Alt A` | `200`, `400`, `403` |
+| `POST` | `/api/mercadolivre/oauth/exchange` | Valida `state`, troca `code` em `/oauth/token` e consulta `/users/me` | JWT + `Alt A` | `200`, `400`, `403` |
+| `DELETE` | `/api/mercadolivre/oauth/disconnect` | Remove tokens OAuth da conta Mercado Livre do tenant | JWT + `Alt A` | `200`, `403`, `404` |
+| `GET` | `/api/mercadolivre/search` | Consulta catálogo oficial Mercado Livre (`/sites/MLB/search`) com vendedor/nickname | JWT + `Alt A` | `200`, `403`, `502` |
+| `GET` | `/api/mercadolivre/offers` | Lista fila de ofertas oficiais importadas (`meli.la`) do tenant | JWT + `Alt A` | `200`, `403` |
+| `POST` | `/api/mercadolivre/offers` | Importa oferta validando domínio oficial (`mercadolivre.com.br` / `meli.la`) | JWT + `Alt A` | `201`, `400`, `403` |
+| `PATCH` | `/api/mercadolivre/offers/:id` | Atualiza ou pausa/ativa oferta na fila | JWT + `Alt A` | `200`, `400`, `403`, `404` |
+| `DELETE` | `/api/mercadolivre/offers/:id` | Exclui oferta pertencente ao tenant | JWT + `Alt A` | `200`, `403`, `404` |

@@ -1,9 +1,9 @@
 # Dúvidas Bloqueantes e Perguntas Abertas (OPEN_QUESTIONS)
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
-> **Versão do Documento:** 1.3 (Q-AUT-01 aprovada pelo PO)  
+> **Versão do Documento:** 1.5 (Q-ML-01 aprovada pelo PO — Arquitetura Híbrida com Feature Flags)  
 > **Metodologia:** Spec-Driven Development (SDD)  
-> **Data:** 2026-11-10  
+> **Data:** 2026-11-11  
 
 ---
 
@@ -57,3 +57,26 @@
 - **Bloqueia etapa?** **DESBLOQUEADA APÓS APROVAÇÃO.**
 - **Status:** **APROVADA PELO PO (2026-11-10) — Alternativa A selecionada.**
 - **Decisão Oficial:** Ver [`DEC-004` em DECISION_LOG.md](DECISION_LOG.md#dec-004-separação-explícita-entre-estado-paused-e-inactive-para-edição-e-exclusão-de-automações).
+
+---
+
+## 4. Dúvidas Bloqueantes de Integração — Mercado Livre Afiliados
+
+### Q-ML-01: Inexistência de API Oficial Pública para Geração de Links de Afiliados do Mercado Livre (`meli.la`)
+- **Contexto:** Após pesquisa na documentação oficial do Mercado Livre (`https://developers.mercadolivre.com.br` e `https://www.mercadolivre.com.br/l/afiliados-home`), constatou-se:
+  1. **Busca de produtos existe oficialmente:** O Mercado Livre Developers oferece autenticação OAuth 2.0 (`APP_ID` + `Client Secret` -> `Access Token` / `Refresh Token`) e endpoint REST oficial `GET https://api.mercadolibre.com/sites/MLB/search?q=...` (além de `/items/{id}`), podendo exigir `Authorization: Bearer <ACCESS_TOKEN>`.
+  2. **Geração de links de afiliado (`meli.la`) NÃO possui API oficial pública documentada:** O gerador de links do Programa de Afiliados funciona exclusivamente atrás do portal web autenticado do usuário. O protótipo anexado pelo PO utiliza captura de **cookies de sessão** (`orguserid`, `ssid`, `orguseridp`) manualmente ou por extensão de navegador — abordagem não documentada oficialmente, sujeita à expiração periódica (~14 dias), desafios anti-bot/CAPTCHA e mudanças sem aviso prévio.
+- **Alternativas Disponíveis:**
+  - *Alternativa A — Integração Oficial OAuth 2.0 (Busca de Produtos) + Fluxo Manual/Assistido de Links Afiliados (100% aderente à documentação oficial):* Integra busca de produtos e credenciais OAuth oficiais de `developers.mercadolivre.com.br`, enquanto os links `meli.la` oficiais gerados pelo afiliado no Portal do Afiliado são cadastrados/enfileirados no sistema (sem engenharia reversa nem spoofing de cookies no backend).
+    - **Vantagens:** 100% em conformidade com `AGENTS.md` (Regra 2), termos da plataforma e estabilidade em produção.
+    - **Desvantagens / Impactos:** Não converte links `meli.la` automaticamente em background sem ação do usuário no portal oficial.
+  - *Alternativa B — Busca Oficial OAuth + Endpoint/Integrador Externo Homologado ou Contrato Fornecido pelo PO (estilo protótipo):* Implementar a UI de configuração do Mercado Livre no design ShopeeZap (armazenamento cifrado AES-256-GCM e gerenciamento da conexão/tag), condicionando a geração automática de links `meli.la` ao fornecimento de um contrato oficial/parceiro documentado (ou integrador/extensão autorizada pelo PO executada do lado do navegador do usuário, sem engenharia reversa especulativa nem bypass de CAPTCHA no backend).
+    - **Vantagens:** Mantém arquitetura pronta para automação automática caso haja API parceira autorizada ou extensão cliente operando na sessão legítima do afiliado.
+    - **Desvantagens / Impactos:** Geração de link em background no backend permanece **BLOQUEADA** até fornecimento de contrato oficial documentado ou definição de arquitetura via extensão cliente do usuário.
+  - *Alternativa C — Não implementar Mercado Livre no backend agora (manter bloqueio registrado em `BLK-003`):* Aguardar eventual lançamento de API oficial de Afiliados pelo Mercado Livre.
+    - **Vantagens:** Zero esforço com risco de manutenção frágil.
+    - **Desvantagens / Impactos:** Não atende usuários interessados em ofertas do Mercado Livre no curto prazo.
+- **Recomendação Técnica:** **Alternativa A** (para operação 100% oficial imediata com busca via OAuth `/sites/MLB/search` + fila de ofertas/links oficiais `meli.la` gerados pelo afiliado) ou **Alternativa B** caso o PO já possua contrato/documentação de API parceira oficial para anexar ao projeto.
+- **Bloqueia etapa?** **DESBLOQUEADA APÓS APROVAÇÃO.**
+- **Status:** **APROVADA PELO PO (2026-11-11) — Aprovada implementação das Alternativas A e B controladas por Feature Flags (`ml_alternative_b_enabled=true` por padrão; `ml_alternative_a_enabled=false` por padrão).**
+- **Decisão Oficial:** Ver [`DEC-005` em DECISION_LOG.md](DECISION_LOG.md#dec-005-integração-híbrida-mercado-livre-com-alternativas-a-e-b-controladas-por-feature-flags).

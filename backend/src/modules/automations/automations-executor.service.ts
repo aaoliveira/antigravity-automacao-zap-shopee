@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { QueueService } from '../queue/queue.service';
@@ -11,6 +12,7 @@ import { CryptoVaultService } from '../crypto-vault/crypto-vault.service';
 import { WhatsAppGroupsService } from '../evolution/whatsapp-groups.service';
 import { AutomationsSchedulerService } from './automations-scheduler.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { MercadoLivreService } from '../mercadolivre/mercadolivre.service';
 import {
   AffiliatePlatform,
   AutomationStatus,
@@ -32,7 +34,8 @@ export class AutomationsExecutorService {
     private readonly cryptoVault: CryptoVaultService,
     private readonly whatsappGroupsService: WhatsAppGroupsService,
     private readonly schedulerService: AutomationsSchedulerService,
-    private readonly couponsService?: CouponsService,
+    @Optional() private readonly couponsService?: CouponsService,
+    @Optional() private readonly mercadoLivreService?: MercadoLivreService,
   ) {}
 
   /**
@@ -67,6 +70,7 @@ export class AutomationsExecutorService {
         include: {
           instance: { include: { server: true } },
           shopeeCredential: true,
+          mercadoLivreAccount: true,
           groupRedirectLink: true,
           keywords: true,
           groups: { include: { group: true } },
@@ -172,88 +176,200 @@ export class AutomationsExecutorService {
       });
       const excludedItemIds = recentSnapshots.map((s) => s.shopeeItemId);
 
-      // Descriptografa segredo da Shopee para consulta oficial
-      const shopeeSecret = this.cryptoVault.decrypt(
-        automation.shopeeCredential.appSecretEncrypted,
-      );
+      let selectedProduct: {
+        itemId: string;
+        title: string;
+        price: number;
+        originalPrice?: number | null;
+        imageUrl: string;
+        productUrl: string;
+        commissionRate?: number | null;
+        shopName?: string | null;
+      };
+      let shortLinkUrl = '';
+      let selectedMlOfferId: string | undefined;
 
-      // Consulta ofertas na Shopee Affiliate Open API
-      const searchResult = await this.shopeeClient.searchProducts(
-        automation.shopeeCredential.appId,
-        shopeeSecret,
-        {
-          keyword: selectedKeyword,
-          page: 1,
-          limit: 20,
-        },
-      );
-      const candidates = searchResult.products || [];
+      if (automation.platform === AffiliatePlatform.MERCADO_LIVRE) {
+        if (!automation.mercadoLivreAccountId || !this.mercadoLivreService) {
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: ExecutionStatus.FAILED,
+              selectedKeyword,
+              errorMessage: 'Conta Mercado Livre não vinculada a esta automação.',
+              completedAt: new Date(),
+            },
+          });
+          this.updateNextExecution(automation);
+          return {
+            success: false,
+            executionId: execution.id,
+            message: 'Conta Mercado Livre não configurada na automação.',
+            status: ExecutionStatus.FAILED,
+          };
+        }
 
-      // Filtra produtos que já foram divulgados na janela de desduplicação
-      const eligibleProducts = candidates.filter(
-        (p) => !excludedItemIds.includes(p.itemId),
-      );
+        try {
+          const mlResult = await this.mercadoLivreService.resolveOfferForExecution({
+            tenantId,
+            accountId: automation.mercadoLivreAccountId,
+            keyword: selectedKeyword,
+            excludedItemIds: new Set(excludedItemIds),
+          });
 
-      if (eligibleProducts.length === 0) {
-        this.logger.warn(
-          `Nenhum produto elegível encontrado para a palavra-chave '${selectedKeyword}' após exclusão de ${excludedItemIds.length} produtos recentes.`,
+          selectedProduct = {
+            itemId: mlResult.itemKey,
+            title: mlResult.title,
+            price: mlResult.price,
+            originalPrice: mlResult.originalPrice,
+            imageUrl: mlResult.imageUrl,
+            productUrl: mlResult.productUrl,
+            commissionRate: null,
+            shopName: mlResult.sellerName,
+          };
+          shortLinkUrl = mlResult.shortLink;
+          selectedMlOfferId = mlResult.offerId;
+        } catch (mlErr: any) {
+          const noOffer = String(mlErr.message || '').includes(
+            'Nenhuma oferta elegível',
+          );
+          const failStatus = noOffer
+            ? ExecutionStatus.SKIPPED_NO_ELIGIBLE_PRODUCT
+            : ExecutionStatus.FAILED;
+
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: failStatus,
+              selectedKeyword,
+              errorMessage: mlErr.message,
+              completedAt: new Date(),
+            },
+          });
+          this.updateNextExecution(automation);
+          return {
+            success: false,
+            executionId: execution.id,
+            message: mlErr.message,
+            status: failStatus,
+          };
+        }
+      } else {
+        if (!automation.shopeeCredential) {
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: ExecutionStatus.FAILED,
+              selectedKeyword,
+              errorMessage: 'Credencial Shopee não vinculada a esta automação.',
+              completedAt: new Date(),
+            },
+          });
+          this.updateNextExecution(automation);
+          return {
+            success: false,
+            executionId: execution.id,
+            message: 'Credencial Shopee não configurada na automação.',
+            status: ExecutionStatus.FAILED,
+          };
+        }
+
+        // Descriptografa segredo da Shopee para consulta oficial
+        const shopeeSecret = this.cryptoVault.decrypt(
+          automation.shopeeCredential.appSecretEncrypted,
         );
 
-        const execution = await this.prisma.automationExecution.create({
-          data: {
-            tenantId,
-            automationId,
-            status: ExecutionStatus.SKIPPED_NO_ELIGIBLE_PRODUCT,
-            selectedKeyword,
-            errorMessage: `Nenhum produto elegível encontrado para o nicho '${selectedKeyword}' dentro da janela de desduplicação de ${automation.dedupWindowDays} dias.`,
-            completedAt: new Date(),
-          },
-        });
-
-        this.updateNextExecution(automation);
-
-        return {
-          success: false,
-          executionId: execution.id,
-          message: 'Nenhum produto elegível encontrado.',
-          status: ExecutionStatus.SKIPPED_NO_ELIGIBLE_PRODUCT,
-        };
-      }
-
-      // Sorteia aleatoriamente um produto entre os elegíveis
-      const selectedProduct =
-        eligibleProducts[Math.floor(Math.random() * eligibleProducts.length)];
-
-      // 7. Geração do Short Link Oficial Shopee com Credencial do Proprietário
-      let shortLinkUrl = '';
-      try {
-        shortLinkUrl = await this.shopeeClient.generateShortLink(
+        // Consulta ofertas na Shopee Affiliate Open API
+        const searchResult = await this.shopeeClient.searchProducts(
           automation.shopeeCredential.appId,
           shopeeSecret,
-          selectedProduct.productUrl,
-          [automation.name.slice(0, 30), selectedProduct.itemId.slice(0, 30)],
-        );
-      } catch (linkErr: any) {
-        this.logger.error(`Falha ao gerar Short Link Shopee: ${linkErr.message}`);
-
-        const execution = await this.prisma.automationExecution.create({
-          data: {
-            tenantId,
-            automationId,
-            status: ExecutionStatus.FAILED,
-            selectedKeyword,
-            errorMessage: `Falha na geração do Short Link de afiliado Shopee: ${linkErr.message}`,
-            completedAt: new Date(),
+          {
+            keyword: selectedKeyword,
+            page: 1,
+            limit: 20,
           },
-        });
+        );
+        const candidates = searchResult.products || [];
 
-        this.updateNextExecution(automation);
+        // Filtra produtos que já foram divulgados na janela de desduplicação
+        const eligibleProducts = candidates.filter(
+          (p) => !excludedItemIds.includes(p.itemId),
+        );
 
-        return {
-          success: false,
-          executionId: execution.id,
-          message: 'Falha na geração do Short Link.',
-          status: ExecutionStatus.FAILED,
+        if (eligibleProducts.length === 0) {
+          this.logger.warn(
+            `Nenhum produto elegível encontrado para a palavra-chave '${selectedKeyword}' após exclusão de ${excludedItemIds.length} produtos recentes.`,
+          );
+
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: ExecutionStatus.SKIPPED_NO_ELIGIBLE_PRODUCT,
+              selectedKeyword,
+              errorMessage: `Nenhum produto elegível encontrado para o nicho '${selectedKeyword}' dentro da janela de desduplicação de ${automation.dedupWindowDays} dias.`,
+              completedAt: new Date(),
+            },
+          });
+
+          this.updateNextExecution(automation);
+
+          return {
+            success: false,
+            executionId: execution.id,
+            message: 'Nenhum produto elegível encontrado.',
+            status: ExecutionStatus.SKIPPED_NO_ELIGIBLE_PRODUCT,
+          };
+        }
+
+        // Sorteia aleatoriamente um produto entre os elegíveis
+        const pickedShopee =
+          eligibleProducts[Math.floor(Math.random() * eligibleProducts.length)];
+
+        // 7. Geração do Short Link Oficial Shopee com Credencial do Proprietário
+        try {
+          shortLinkUrl = await this.shopeeClient.generateShortLink(
+            automation.shopeeCredential.appId,
+            shopeeSecret,
+            pickedShopee.productUrl,
+            [automation.name.slice(0, 30), pickedShopee.itemId.slice(0, 30)],
+          );
+        } catch (linkErr: any) {
+          this.logger.error(`Falha ao gerar Short Link Shopee: ${linkErr.message}`);
+
+          const execution = await this.prisma.automationExecution.create({
+            data: {
+              tenantId,
+              automationId,
+              status: ExecutionStatus.FAILED,
+              selectedKeyword,
+              errorMessage: `Falha na geração do Short Link de afiliado Shopee: ${linkErr.message}`,
+              completedAt: new Date(),
+            },
+          });
+
+          this.updateNextExecution(automation);
+
+          return {
+            success: false,
+            executionId: execution.id,
+            message: 'Falha na geração do Short Link.',
+            status: ExecutionStatus.FAILED,
+          };
+        }
+
+        selectedProduct = {
+          itemId: pickedShopee.itemId,
+          title: pickedShopee.title,
+          price: pickedShopee.price,
+          originalPrice: pickedShopee.originalPrice,
+          imageUrl: pickedShopee.imageUrl,
+          productUrl: pickedShopee.productUrl,
+          commissionRate: pickedShopee.commissionRate,
+          shopName: (pickedShopee as any).shopName ?? null,
         };
       }
 
@@ -278,10 +394,11 @@ export class AutomationsExecutorService {
       const matchedCoupon = this.couponsService
         ? await this.couponsService.selectForExecution(
             tenantId,
-            AffiliatePlatform.SHOPEE,
+            automation.platform ?? AffiliatePlatform.SHOPEE,
             {
               title: selectedProduct.title,
               price: selectedProduct.price,
+              shopName: selectedProduct.shopName ?? null,
             },
             automation.couponId,
           )
@@ -415,6 +532,10 @@ export class AutomationsExecutorService {
 
       if (matchedCoupon && successCount > 0 && this.couponsService) {
         await this.couponsService.incrementUsage(matchedCoupon.coupon.id);
+      }
+
+      if (selectedMlOfferId && successCount > 0 && this.mercadoLivreService) {
+        await this.mercadoLivreService.markOfferPublished(selectedMlOfferId);
       }
 
       this.updateNextExecution(automation);

@@ -41,13 +41,14 @@ export class LoggingInterceptor implements NestInterceptor {
 
     const sensitiveKeys = [
       'password',
-      'passwordHash',
+      'passwordhash',
       'token',
       'jwt',
-      'appSecret',
-      'apiKey',
+      'appsecret',
+      'apikey',
       'authorization',
       'secret',
+      'cookie',
     ];
 
     const copy = Array.isArray(obj) ? [...obj] : { ...obj };

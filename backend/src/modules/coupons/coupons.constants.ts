@@ -16,4 +16,10 @@ export const AFFILIATE_PLATFORMS: AffiliatePlatformInfo[] = [
     label: 'Shopee Afiliados',
     description: 'Cupons aplicáveis às ofertas geradas pela integração Shopee Open API.',
   },
+  {
+    id: AffiliatePlatform.MERCADO_LIVRE,
+    name: 'Mercado Livre',
+    label: 'Mercado Livre Afiliados',
+    description: 'Cupons aplicáveis às ofertas e divulgações do programa de afiliados Mercado Livre.',
+  },
 ];

@@ -2,7 +2,7 @@
 
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
 > **Status:** Investigação Técnica Concluída e Homologada (Prompt 02)  
-> **Última Atualização:** 2026-11-09  
+> **Última Atualização:** 2026-11-11  
 
 ---
 
@@ -20,7 +20,12 @@
    - **Provedor Homologado:** `WHATSAPP-BAILEYS`
    - **Contrato Detalhado:** Consulte [`docs/architecture/EVOLUTION_API_CONTRACTS.md`](EVOLUTION_API_CONTRACTS.md)
 
-3. **Matriz de Compatibilidade:**
+3. **Mercado Livre Developers (Alternativa A) & Modo Protótipo/Parceiro (Alternativa B):**
+   - **Portal Oficial Developers:** `https://developers.mercadolivre.com.br`
+   - **Portal Oficial Afiliados:** `https://www.mercadolivre.com.br/l/afiliados-home`
+   - **Contrato Detalhado:** Consulte [`docs/architecture/MERCADO_LIVRE_API_CONTRACTS.md`](MERCADO_LIVRE_API_CONTRACTS.md)
+
+4. **Matriz de Compatibilidade:**
    - Consulte [`docs/architecture/API_COMPATIBILITY_MATRIX.md`](API_COMPATIBILITY_MATRIX.md) para o status de cada operação.
 
 ---

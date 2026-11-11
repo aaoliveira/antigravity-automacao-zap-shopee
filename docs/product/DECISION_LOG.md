@@ -3,7 +3,7 @@
 > **Projeto:** SaaS Multi-tenant Shopee + WhatsApp Automation  
 > **Metodologia:** Spec-Driven Development (SDD)  
 > **Status:** Ativo  
-> **Última Atualização:** 2026-11-10  
+> **Última Atualização:** 2026-11-11  
 
 ---
 
@@ -52,3 +52,16 @@
   - **Exclusão (`DELETE /api/automations/:id`):** permitida **somente** quando a automação estiver `INACTIVE` (`409 Conflict` se `ACTIVE` ou `PAUSED`).
 - **Justificativa:** Evita exclusão acidental de automações apenas pausadas durante manutenção de campanhas e torna explícito o ciclo de vida operacional (`Ativa` -> `Pausada` / `Inativa` -> `Excluída`).
 - **Impacto em Artefatos:** Migration Prisma no enum `AutomationStatus`, `ADR-006`, `API_CONTRACTS.md`, `BUSINESS_RULES.md`, `ACCEPTANCE_CRITERIA.md`, `DATABASE_SCHEMA.md`, `AutomationsView.vue` e testes automatizados.
+
+---
+
+### DEC-005: Integração Híbrida Mercado Livre com Alternativas A e B Controladas por Feature Flags
+- **ID da Dúvida Relacionada:** `Q-ML-01`
+- **Data da Decisão:** 2026-11-11
+- **Aprovador:** Product Owner (Usuário)
+- **Contexto:** O Mercado Livre Developers oferece API oficial OAuth 2.0 e busca (`/sites/MLB/search`), mas não fornece API oficial pública para gerar links curtos de afiliado (`meli.la`).
+- **Decisão:** Implementar ambos os modos no backend e frontend protegidos por Feature Flags configuráveis por tenant/usuário logado:
+  1. **Alternativa B (`ml_alternative_b_enabled`, padrão `true`):** Tela baseada no protótipo no design ShopeeZap (tag de afiliado, cookie de sessão cifrado em AES-256-GCM com expiração de 14 dias, integração via extensão/navegador do usuário para envio direto sem scraping no servidor e suporte opcional a URL de Gateway Integrador Homologado validada contra SSRF).
+  2. **Alternativa A (`ml_alternative_a_enabled`, padrão `false`):** Fluxo 100% oficial via Mercado Livre Developers OAuth 2.0 (`authorization_code` + `refresh_token`), busca oficial `GET /sites/MLB/search` e importação assistida/fila de ofertas com links oficiais `meli.la` para disparo nas automações.
+- **Justificativa:** Permite entregar imediatamente a experiência desejada do protótipo mantendo conformidade estrita com a Regra 2 do `AGENTS.md` (zero endpoints internos não documentados inventados no backend), enquanto mantém o caminho 100% oficial pronto para ativação por feature flag quando desejado pelo usuário logado.
+- **Impacto em Artefatos:** Schema Prisma (`FeatureFlag`, `MercadoLivreAccount`, `MercadoLivreOffer`, `AffiliatePlatform.MERCADO_LIVRE`, `Automation.platform`), `ADR-008`, `MERCADO_LIVRE_API_CONTRACTS.md`, `INTEGRATIONS.md`, `KNOWN_ISSUES.md`, módulo `mercadolivre` + `feature-flags`, `CouponsModule` e views Vue 3.

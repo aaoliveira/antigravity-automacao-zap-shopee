@@ -18,8 +18,8 @@ import { Type, Transform } from 'class-transformer';
 
 export class CreateCouponDto {
   @IsOptional()
-  @IsIn(['SHOPEE'])
-  platform?: 'SHOPEE' = 'SHOPEE';
+  @IsIn(['SHOPEE', 'MERCADO_LIVRE'])
+  platform?: 'SHOPEE' | 'MERCADO_LIVRE' = 'SHOPEE';
 
   @IsString()
   @IsNotEmpty()
@@ -79,8 +79,8 @@ export class CreateCouponDto {
 
 export class UpdateCouponDto {
   @IsOptional()
-  @IsIn(['SHOPEE'])
-  platform?: 'SHOPEE';
+  @IsIn(['SHOPEE', 'MERCADO_LIVRE'])
+  platform?: 'SHOPEE' | 'MERCADO_LIVRE';
 
   @IsOptional()
   @IsString()
@@ -142,8 +142,8 @@ export class UpdateCouponDto {
 
 export class QueryCouponsDto {
   @IsOptional()
-  @IsIn(['SHOPEE'])
-  platform?: 'SHOPEE';
+  @IsIn(['SHOPEE', 'MERCADO_LIVRE'])
+  platform?: 'SHOPEE' | 'MERCADO_LIVRE';
 
   @IsOptional()
   @Transform(({ value }) => {

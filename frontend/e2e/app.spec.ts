@@ -150,7 +150,10 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          data: [{ id: 'SHOPEE', name: 'Shopee', label: 'Shopee Afiliados' }],
+          data: [
+            { id: 'SHOPEE', name: 'Shopee', label: 'Shopee Afiliados' },
+            { id: 'MERCADO_LIVRE', name: 'Mercado Livre', label: 'Mercado Livre Afiliados' },
+          ],
         }),
       });
     });
@@ -160,6 +163,57 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ success: true, data: [], meta: { total: 0, maxLimit: 50 } }),
+      });
+    });
+
+    await page.route('**/api/feature-flags', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            flags: {
+              ml_alternative_b_enabled: true,
+              ml_alternative_a_enabled: false,
+            },
+            items: [
+              {
+                key: 'ml_alternative_b_enabled',
+                title: 'Mercado Livre — Alternativa B',
+                description: 'Tela protótipo',
+                enabled: true,
+                defaultValue: true,
+              },
+              {
+                key: 'ml_alternative_a_enabled',
+                title: 'Mercado Livre — Alternativa A',
+                description: 'OAuth 2.0 Oficial',
+                enabled: false,
+                defaultValue: false,
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            featureFlags: {
+              ml_alternative_b_enabled: true,
+              ml_alternative_a_enabled: false,
+            },
+            accounts: [],
+            defaultAccount: null,
+            activeOffersCount: 0,
+          },
+        }),
       });
     });
   });
@@ -236,7 +290,7 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     // Abre o Wizard
     await page.click('button:has-text("Nova Automação (Wizard)")');
     await expect(page.locator('text=Configurar Nova Automação')).toBeVisible();
-    await expect(page.locator('text=Etapa 1: Dados da Automação e Credencial Shopee')).toBeVisible();
+    await expect(page.locator('text=Etapa 1: Dados da Automação, Plataforma e Credencial')).toBeVisible();
   });
 
   test('WhatsApp & Evolution: exibe guia em formato de checklist para configurar instância e servidor', async ({ page }) => {
@@ -910,5 +964,182 @@ test.describe('ShopeeZap SaaS Frontend E2E Tests', () => {
     await page.locator('select').last().selectOption('cp-e2e-1');
     await page.click('button:has-text("+ Inserir modelo com Cupom")');
     await expect(page.locator('textarea')).toHaveValue(/\{\{cupom\}\}/);
+  });
+
+  test('Mercado Livre Híbrido: Feature Flags padrão (B=ON, A=OFF), Alternativa B protótipo e Alternativa A OAuth/meli.la', async ({ page }) => {
+    const mlState = {
+      flags: {
+        ml_alternative_b_enabled: true,
+        ml_alternative_a_enabled: false,
+      },
+      account: null as any,
+      offers: [] as any[],
+    };
+
+    await page.route('**/api/feature-flags', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON();
+        Object.assign(mlState.flags, body);
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            flags: { ...mlState.flags },
+            items: [],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            featureFlags: { ...mlState.flags },
+            accounts: mlState.account ? [mlState.account] : [],
+            defaultAccount: mlState.account,
+            activeOffersCount: mlState.offers.length,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/prototype/config', async (route) => {
+      const body = route.request().postDataJSON();
+      mlState.account = {
+        id: 'ml-acc-e2e-1',
+        label: body.label || 'Conta Mercado Livre',
+        affiliateTag: body.affiliateTag,
+        sessionCookieMasked: '************abc123',
+        isCookieConnected: true,
+        cookieDaysRemaining: 14,
+        isCookieExpired: false,
+        isOAuthConnected: false,
+      };
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: mlState.account }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/prototype/test-conversion', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            converted: false,
+            status: 'OFFICIAL_CONTRACT_REQUIRED',
+            originalUrl: body.url,
+            affiliateTag: mlState.account?.affiliateTag,
+            isCookieConnected: true,
+            message: 'Sessão validada. Configure um Gateway Parceiro Homologado para conversão server-side.',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/search**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            items: [
+              {
+                mlItemId: 'MLB777',
+                title: 'Caixa de Som JBL Go 4 Bluetooth',
+                price: 249.9,
+                originalPrice: 349.9,
+                imageUrl: 'https://http2.mlstatic.com/jbl.jpg',
+                permalink: 'https://produto.mercadolivre.com.br/MLB-777',
+                sellerName: 'Loja Oficial JBL',
+              },
+            ],
+            total: 1,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/mercadolivre/offers', async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON();
+        const created = { id: 'offer-e2e-1', isActive: true, ...body };
+        mlState.offers.push(created);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: created }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { items: mlState.offers, total: mlState.offers.length },
+        }),
+      });
+    });
+
+    // Autentica via Login
+    await page.goto('/login');
+    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[type="password"]', testUser.password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*dashboard/);
+
+    // Navega via menu lateral para Mercado Livre
+    await page.click('nav a:has-text("Mercado Livre")');
+    await expect(page).toHaveURL(/.*mercadolivre/);
+
+    // Por padrão: Alternativa B visível e Alternativa A oculta
+    await expect(page.getByTestId('section-ml-alt-b')).toBeVisible();
+    await expect(page.getByTestId('section-ml-alt-a')).toHaveCount(0);
+
+    // Salva configuração Alternativa B
+    await page.fill('input[placeholder="Ex: azevedoalexandre39"]', 'azevedoalexandre39');
+    await page.locator('textarea').fill('orguserid=123; ssid=abc; orguseridp=xyz');
+    await page.click('button:has-text("Salvar e Validar")');
+
+    await expect(page.locator('text=azevedoalexandre39')).toBeVisible();
+    await expect(page.locator('text=expira em 14 dias')).toBeVisible();
+
+    // Testa conversão honesta
+    await page.fill('input[placeholder*="mercadolivre.com.br"]', 'https://www.mercadolivre.com.br/p/MLB777');
+    await page.click('button:has-text("Testar")');
+    await expect(page.locator('text=Validação Local Concluída')).toBeVisible();
+
+    // Ativa Alternativa A via Feature Flag switch
+    await page.getByTestId('toggle-ml-alt-a').click();
+    await expect(page.getByTestId('section-ml-alt-a')).toBeVisible();
+
+    // Busca no catálogo oficial e importa link meli.la
+    await page.fill('input[placeholder*="fone bluetooth samsung"]', 'jbl');
+    await page.click('button:has-text("Buscar Produtos")');
+    await expect(page.locator('text=Caixa de Som JBL Go 4 Bluetooth')).toBeVisible();
+    await expect(page.locator('text=Loja Oficial JBL')).toBeVisible();
+
+    await page.click('button:has-text("Vincular meli.la")');
+    await page.fill('input[placeholder="https://meli.la/..."]', 'https://meli.la/2e2eOK');
+    await page.click('button:has-text("Salvar na Fila")');
+    await expect(page.locator('text=https://meli.la/2e2eOK')).toBeVisible();
+
+    // Desabilita Alternativa B via Feature Flag switch
+    await page.getByTestId('toggle-ml-alt-b').click();
+    await expect(page.getByTestId('section-ml-alt-b')).toHaveCount(0);
+    await expect(page.getByTestId('section-ml-alt-a')).toBeVisible();
   });
 });

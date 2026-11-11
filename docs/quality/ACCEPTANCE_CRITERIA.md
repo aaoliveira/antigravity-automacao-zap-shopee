@@ -133,3 +133,11 @@ Todos os Requisitos Funcionais (RF-01 a RF-16) possuem critérios de aceite obje
 - [ ] **AC-RF16-01:** O dashboard exibe indicadores agregados calculados exclusivamente a partir dos dados reais do tenant: total de automações ativas, instâncias conectadas, ofertas publicadas no dia e taxa de sucesso.
 - [ ] **AC-RF16-02:** O painel lista as próximas 5 execuções agendadas com os respectivos horários previstos.
 - [ ] **AC-RF16-03:** O painel exibe alerta visual de atenção caso alguma instância WhatsApp esteja desconectada.
+
+---
+
+### RF-17: Integração Mercado Livre (Alternativas B e A) & Feature Flags
+- [x] **AC-RF17-01:** O sistema disponibiliza Feature Flags por tenant/usuário logado com `ml_alternative_b_enabled = true` (habilitada por padrão) e `ml_alternative_a_enabled = false` (desabilitada por padrão), bloqueando com `403 Forbidden` os endpoints da alternativa desabilitada.
+- [x] **AC-RF17-02:** Na Alternativa B (tela estilo protótipo no tema claro ShopeeZap), tag, cookie (com expiração exibida em 14 dias) e chave de gateway são cifrados com AES-256-GCM, mascarados em todas as respostas e protegidos por validação anti-SSRF em `partnerGatewayUrl`; o teste de conversão retorna status transparente (`OFFICIAL_CONTRACT_REQUIRED`) quando nenhum gateway homologado é configurado.
+- [x] **AC-RF17-03:** Na Alternativa A (100% oficial via Mercado Livre Developers OAuth 2.0), o fluxo gera URL oficial `auth.mercadolivre.com.br/authorization` com `state` assinado HMAC-SHA256 anti-CSRF, consulta `/sites/MLB/search` retornando `sellerName` para matching de cupons e valida links `meli.la` na fila de ofertas.
+- [x] **AC-RF17-04:** A plataforma `MERCADO_LIVRE` integra-se aos módulos de Cupons e Automações (disparando ofertas com link `meli.la`, cupom específico Mercado Livre e estratégia de randomização de grupos).

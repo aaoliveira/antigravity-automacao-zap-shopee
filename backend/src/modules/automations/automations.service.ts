@@ -4,15 +4,22 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { AutomationsSchedulerService } from './automations-scheduler.service';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { FEATURE_FLAG_KEYS } from '../feature-flags/feature-flags.constants';
 import {
   CreateAutomationDto,
   UpdateAutomationDto,
   QueryAutomationsDto,
 } from './dto/automations.dto';
-import { AutomationStatus, DispatchStrategy } from '@prisma/client';
+import {
+  AffiliatePlatform,
+  AutomationStatus,
+  DispatchStrategy,
+} from '@prisma/client';
 
 @Injectable()
 export class AutomationsService {
@@ -28,10 +35,19 @@ export class AutomationsService {
     expiresAt: true,
     isActive: true,
   };
+  private readonly mercadoLivreAccountSummarySelect = {
+    id: true,
+    label: true,
+    affiliateTag: true,
+    mlNickname: true,
+    isOAuthConnected: true,
+    isActive: true,
+  };
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly schedulerService: AutomationsSchedulerService,
+    @Optional() private readonly featureFlagsService?: FeatureFlagsService,
   ) {}
 
   /**
@@ -70,6 +86,9 @@ export class AutomationsService {
             appId: true,
             isValid: true,
           },
+        },
+        mercadoLivreAccount: {
+          select: this.mercadoLivreAccountSummarySelect,
         },
         groupRedirectLink: {
           select: {
@@ -129,6 +148,9 @@ export class AutomationsService {
             isValid: true,
           },
         },
+        mercadoLivreAccount: {
+          select: this.mercadoLivreAccountSummarySelect,
+        },
         groupRedirectLink: {
           select: {
             id: true,
@@ -179,13 +201,16 @@ export class AutomationsService {
       throw new BadRequestException('A instância WhatsApp informada não pertence a este tenant.');
     }
 
-    // 2. Valida se a credencial Shopee pertence ao tenant
-    const shopeeCred = await this.prisma.shopeeCredential.findFirst({
-      where: { id: dto.shopeeCredentialId, tenantId },
-    });
-    if (!shopeeCred) {
-      throw new BadRequestException('A credencial Shopee informada não pertence a este tenant.');
-    }
+    const targetPlatform = (dto.platform ??
+      AffiliatePlatform.SHOPEE) as AffiliatePlatform;
+
+    // 2. Valida credencial/conta da plataforma selecionada pertencente ao tenant
+    const credentialBindings = await this.validatePlatformCredential(
+      tenantId,
+      targetPlatform,
+      dto.shopeeCredentialId,
+      dto.mercadoLivreAccountId,
+    );
 
     // 3. Valida se TODOS os grupos informados pertencem ao tenant e à instância
     const groups = await this.prisma.whatsAppGroup.findMany({
@@ -207,7 +232,7 @@ export class AutomationsService {
     }
 
     if (dto.couponId) {
-      await this.validateCoupon(tenantId, dto.couponId);
+      await this.validateCoupon(tenantId, dto.couponId, targetPlatform);
     }
 
     // 4. Calcula o próximo horário de execução agendado
@@ -225,9 +250,11 @@ export class AutomationsService {
     const automation = await this.prisma.automation.create({
       data: {
         tenantId,
+        platform: targetPlatform,
         name: dto.name.trim(),
         instanceId: dto.instanceId,
-        shopeeCredentialId: dto.shopeeCredentialId,
+        shopeeCredentialId: credentialBindings.shopeeCredentialId,
+        mercadoLivreAccountId: credentialBindings.mercadoLivreAccountId,
         groupRedirectLinkId: dto.groupRedirectLinkId || null,
         couponId: dto.couponId || null,
         dispatchStrategy: (dto.dispatchStrategy || 'ALL_SEQUENTIAL') as DispatchStrategy,
@@ -251,6 +278,9 @@ export class AutomationsService {
       include: {
         keywords: true,
         groups: { include: { group: true } },
+        mercadoLivreAccount: {
+          select: this.mercadoLivreAccountSummarySelect,
+        },
         groupRedirectLink: {
           select: { id: true, name: true, slug: true, isActive: true, strategy: true },
         },
@@ -294,11 +324,30 @@ export class AutomationsService {
       }
     }
 
-    if (dto.shopeeCredentialId) {
-      const cred = await this.prisma.shopeeCredential.findFirst({
-        where: { id: dto.shopeeCredentialId, tenantId },
-      });
-      if (!cred) throw new BadRequestException('Credencial Shopee não pertence a este tenant.');
+    const targetPlatform = (dto.platform ??
+      existing.platform ??
+      AffiliatePlatform.SHOPEE) as AffiliatePlatform;
+
+    let resolvedShopeeCredentialId = existing.shopeeCredentialId;
+    let resolvedMercadoLivreAccountId = existing.mercadoLivreAccountId;
+
+    if (
+      dto.platform !== undefined ||
+      dto.shopeeCredentialId !== undefined ||
+      dto.mercadoLivreAccountId !== undefined
+    ) {
+      const credentialBindings = await this.validatePlatformCredential(
+        tenantId,
+        targetPlatform,
+        dto.shopeeCredentialId !== undefined
+          ? dto.shopeeCredentialId
+          : existing.shopeeCredentialId,
+        dto.mercadoLivreAccountId !== undefined
+          ? dto.mercadoLivreAccountId
+          : existing.mercadoLivreAccountId,
+      );
+      resolvedShopeeCredentialId = credentialBindings.shopeeCredentialId;
+      resolvedMercadoLivreAccountId = credentialBindings.mercadoLivreAccountId;
     }
 
     // Se forneceu nova lista de grupos, valida propriedade
@@ -321,7 +370,7 @@ export class AutomationsService {
     }
 
     if (dto.couponId) {
-      await this.validateCoupon(tenantId, dto.couponId);
+      await this.validateCoupon(tenantId, dto.couponId, targetPlatform);
     }
 
     // Recalcula próxima execução se horários foram alterados
@@ -359,9 +408,11 @@ export class AutomationsService {
       return tx.automation.update({
         where: { id },
         data: {
+          platform: targetPlatform,
           name: dto.name ? dto.name.trim() : existing.name,
           instanceId: dto.instanceId ?? existing.instanceId,
-          shopeeCredentialId: dto.shopeeCredentialId ?? existing.shopeeCredentialId,
+          shopeeCredentialId: resolvedShopeeCredentialId,
+          mercadoLivreAccountId: resolvedMercadoLivreAccountId,
           groupRedirectLinkId:
             dto.groupRedirectLinkId !== undefined
               ? dto.groupRedirectLinkId
@@ -560,13 +611,86 @@ export class AutomationsService {
     return link;
   }
 
-  private async validateCoupon(tenantId: string, couponId: string) {
+  private async validatePlatformCredential(
+    tenantId: string,
+    platform: AffiliatePlatform,
+    shopeeCredentialId?: string | null,
+    mercadoLivreAccountId?: string | null,
+  ): Promise<{
+    shopeeCredentialId: string | null;
+    mercadoLivreAccountId: string | null;
+  }> {
+    if (platform === AffiliatePlatform.MERCADO_LIVRE) {
+      if (this.featureFlagsService) {
+        const flags = await this.featureFlagsService.getFlagsForTenant(tenantId);
+        const mlEnabled =
+          flags.flags[FEATURE_FLAG_KEYS.ML_ALTERNATIVE_A_ENABLED] ||
+          flags.flags[FEATURE_FLAG_KEYS.ML_ALTERNATIVE_B_ENABLED];
+        if (!mlEnabled) {
+          throw new BadRequestException(
+            'Habilite ao menos uma alternativa do Mercado Livre nas Feature Flags para criar automações desta plataforma.',
+          );
+        }
+      }
+
+      if (!mercadoLivreAccountId) {
+        throw new BadRequestException(
+          'Selecione uma conta do Mercado Livre para automações da plataforma Mercado Livre.',
+        );
+      }
+
+      const mlAccount = await this.prisma.mercadoLivreAccount.findFirst({
+        where: { id: mercadoLivreAccountId, tenantId, isActive: true },
+      });
+      if (!mlAccount) {
+        throw new BadRequestException(
+          'A conta Mercado Livre informada não pertence a este tenant ou está inativa.',
+        );
+      }
+
+      return {
+        shopeeCredentialId: null,
+        mercadoLivreAccountId,
+      };
+    }
+
+    if (!shopeeCredentialId) {
+      throw new BadRequestException(
+        'Selecione uma credencial Shopee para automações da plataforma Shopee.',
+      );
+    }
+
+    const shopeeCred = await this.prisma.shopeeCredential.findFirst({
+      where: { id: shopeeCredentialId, tenantId },
+    });
+    if (!shopeeCred) {
+      throw new BadRequestException(
+        'A credencial Shopee informada não pertence a este tenant.',
+      );
+    }
+
+    return {
+      shopeeCredentialId,
+      mercadoLivreAccountId: null,
+    };
+  }
+
+  private async validateCoupon(
+    tenantId: string,
+    couponId: string,
+    expectedPlatform: AffiliatePlatform,
+  ) {
     const coupon = await this.prisma.coupon.findFirst({
       where: { id: couponId, tenantId },
     });
     if (!coupon) {
       throw new BadRequestException(
         'O cupom informado não pertence a este tenant.',
+      );
+    }
+    if (coupon.platform !== expectedPlatform) {
+      throw new BadRequestException(
+        `O cupom '${coupon.code}' pertence à plataforma ${coupon.platform} e não pode ser vinculado a uma automação ${expectedPlatform}.`,
       );
     }
     return coupon;

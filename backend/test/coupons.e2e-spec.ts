@@ -184,14 +184,17 @@ describe('Affiliate Coupons CRUD, Multi-Tenancy & Automation Integration (E2E)',
     await app.close();
   });
 
-  it('GET /api/coupons/platforms deve listar apenas plataformas existentes no sistema (SHOPEE)', async () => {
+  it('GET /api/coupons/platforms deve listar plataformas existentes no sistema (SHOPEE e MERCADO_LIVRE)', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/coupons/platforms')
       .set('Authorization', `Bearer ${tenantA_token}`)
       .expect(200);
 
     expect(res.body.success).toBe(true);
-    expect(res.body.data.map((p: any) => p.id)).toEqual(['SHOPEE']);
+    expect(res.body.data.map((p: any) => p.id)).toEqual([
+      'SHOPEE',
+      'MERCADO_LIVRE',
+    ]);
   });
 
   it('CRUD de Cupons: cria, lista, edita, alterna status e valida regras de entrada', async () => {
